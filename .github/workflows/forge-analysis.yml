@@ -1,0 +1,113 @@
+name: FORGE Code Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          files: |
+            **/*.py
+            **/*.js
+            **/*.jsx
+            **/*.ts
+            **/*.tsx
+            **/*.java
+            **/*.go
+      
+      - name: Analyze with FORGE API
+        id: forge-analysis
+        if: steps.changed-files.outputs.any_changed == 'true'
+        env:
+          FORGE_API_URL: ${{ secrets.FORGE_API_URL || 'https://your-forge-instance.com' }}
+          FORGE_REPO_ID: ${{ secrets.FORGE_REPO_ID }}
+        run: |
+          echo "Changed files:"
+          echo "${{ steps.changed-files.outputs.all_changed_files }}"
+          
+          # Fetch heatmap data from FORGE
+          HEATMAP=$(curl -s "${FORGE_API_URL}/analytics/repositories/${FORGE_REPO_ID}/heatmap")
+          
+          # Initialize warning flags
+          HIGH_RISK_FILES=""
+          CRITICAL_FILES=""
+          
+          # Check each changed file against heatmap
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            # Extract churn score for this file
+            SCORE=$(echo "$HEATMAP" | jq -r ".[] | select(.name == \"$file\") | .score")
+            SIZE=$(echo "$HEATMAP" | jq -r ".[] | select(.name == \"$file\") | .size")
+            
+            if [ ! -z "$SCORE" ] && [ "$SCORE" != "null" ]; then
+              echo "File: $file, Churn: $SCORE, Size: $SIZE"
+              
+              # Critical: score > 100
+              if [ "$SCORE" -gt 100 ]; then
+                CRITICAL_FILES="${CRITICAL_FILES}\n- 🔴 \`${file}\` (Churn: ${SCORE}, Size: ${SIZE} LOC) - **CRITICAL RISK**"
+              # High risk: score > 50
+              elif [ "$SCORE" -gt 50 ]; then
+                HIGH_RISK_FILES="${HIGH_RISK_FILES}\n- 🟠 \`${file}\` (Churn: ${SCORE}, Size: ${SIZE} LOC) - **HIGH RISK**"
+              fi
+            fi
+          done
+          
+          # Save results for comment
+          echo "critical_files=${CRITICAL_FILES}" >> $GITHUB_OUTPUT
+          echo "high_risk_files=${HIGH_RISK_FILES}" >> $GITHUB_OUTPUT
+      
+      - name: Comment on PR
+        if: steps.changed-files.outputs.any_changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const criticalFiles = `${{ steps.forge-analysis.outputs.critical_files }}`;
+            const highRiskFiles = `${{ steps.forge-analysis.outputs.high_risk_files }}`;
+            
+            let comment = '## 🔥 FORGE Code Analysis\n\n';
+            
+            if (criticalFiles) {
+              comment += '### ⚠️ Critical Risk Files\n\n';
+              comment += 'These files have extremely high churn (>100 modifications). Review carefully:\n\n';
+              comment += criticalFiles + '\n\n';
+              comment += '**Recommendation**: Consider refactoring or adding comprehensive tests.\n\n';
+            }
+            
+            if (highRiskFiles) {
+              comment += '### 🟠 High Risk Files\n\n';
+              comment += 'These files have significant churn (>50 modifications):\n\n';
+              comment += highRiskFiles + '\n\n';
+              comment += '**Recommendation**: Extra scrutiny during code review.\n\n';
+            }
+            
+            if (!criticalFiles && !highRiskFiles) {
+              comment += '✅ No high-risk files detected in this PR.\n\n';
+              comment += 'Changed files are either new or have low churn scores.\n\n';
+            }
+            
+            comment += '---\n';
+            comment += '*Powered by [FORGE](https://github.com/abhijeetw035/FORGE) - Code Entropy Engine*\n';
+            comment += `*Churn Score = Number of historical modifications | Size = Lines of Code*`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
