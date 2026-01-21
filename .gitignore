@@ -43,6 +43,9 @@ out/
 
 storage/cloned_repos/
 
+miner/tree_sitter_builds/tree-sitter-*/
+miner/tree_sitter_builds/*.so
+
 *.db
 *.sqlite
 
