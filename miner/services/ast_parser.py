@@ -1,4 +1,3 @@
-import tree_sitter
 from tree_sitter import Language, Parser
 import os
 
@@ -28,9 +27,6 @@ class ASTParser:
             '.py': 'python',
             '.js': 'javascript',
             '.java': 'java',
-            '.cpp': 'cpp',
-            '.cc': 'cpp',
-            '.cxx': 'cpp',
             '.go': 'go',
         }
         
@@ -66,7 +62,6 @@ class ASTParser:
             'python': 'function_definition',
             'javascript': 'function_declaration',
             'java': 'method_declaration',
-            'cpp': 'function_definition',
             'go': 'function_declaration',
         }
         

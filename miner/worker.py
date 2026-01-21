@@ -87,7 +87,7 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session):
                 file_path = item.path
                 _, ext = os.path.splitext(file_path)
                 
-                if ext in ['.py', '.js', '.java', '.cpp', '.go']:
+                if ext in ['.py', '.js', '.java', '.go']:
                     try:
                         source_code = item.data_stream.read().decode('utf-8')
                         tree = ast_parser.parse_file(source_code, file_path)

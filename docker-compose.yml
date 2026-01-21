@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -58,6 +56,7 @@ services:
     volumes:
       - ./miner:/app
       - ./storage:/storage
+      - miner_tree_sitter:/app/tree_sitter_builds
     environment:
       - DATABASE_URL=postgresql://forge_user:forge_pass@postgres:5432/forge
       - REDIS_URL=redis://redis:6379
@@ -72,3 +71,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  miner_tree_sitter:

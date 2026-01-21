@@ -13,6 +13,9 @@ while ! nc -z redis 6379; do
 done
 echo "Redis started"
 
+echo "Building Tree-sitter language grammars..."
+python build_languages.py
+
 echo "Initializing database tables..."
 python -c "from database import Base, engine; Base.metadata.create_all(bind=engine)"
 
