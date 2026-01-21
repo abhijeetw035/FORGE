@@ -1,0 +1,18 @@
+services:
+  db-init:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge_user
+      POSTGRES_PASSWORD: forge_pass
+    command: >
+      sh -c "
+        until pg_isready -h postgres -U forge_user; do
+          echo 'Waiting for postgres...';
+          sleep 1;
+        done;
+        echo 'Database ready!';
+      "
+    depends_on:
+      postgres:
+        condition: service_healthy

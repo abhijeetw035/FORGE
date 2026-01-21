@@ -3,6 +3,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     git \
     build-essential \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -14,4 +15,6 @@ COPY . .
 
 RUN python build_languages.py
 
-CMD ["python", "worker.py"]
+RUN chmod +x entrypoint.sh
+
+CMD ["./entrypoint.sh"]
