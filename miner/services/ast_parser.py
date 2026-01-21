@@ -4,36 +4,77 @@ import os
 
 class ASTParser:
     def __init__(self):
-        self.parser = None
-        self.language = None
+        self.parsers = {}
+        self.languages = {}
+        self.build_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tree_sitter_builds')
+        self.language_so = os.path.join(self.build_dir, 'languages.so')
         
-    def setup_python(self):
-        build_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tree_sitter_builds')
-        language_so = os.path.join(build_dir, 'languages.so')
+    def setup_language(self, language_name: str):
+        if language_name in self.parsers:
+            return
         
-        if not os.path.exists(language_so):
-            raise FileNotFoundError(f"Language library not found at {language_so}. Run build_languages.py first.")
+        if not os.path.exists(self.language_so):
+            raise FileNotFoundError(f"Language library not found at {self.language_so}. Run build_languages.py first.")
         
-        self.language = Language(language_so, 'python')
-        self.parser = Parser()
-        self.parser.set_language(self.language)
+        self.languages[language_name] = Language(self.language_so, language_name)
+        self.parsers[language_name] = Parser()
+        self.parsers[language_name].set_language(self.languages[language_name])
     
-    def parse_file(self, source_code: str):
-        if not self.parser:
+    def setup_python(self):
+        self.setup_language('python')
+    
+    def get_parser(self, file_extension: str):
+        extension_map = {
+            '.py': 'python',
+            '.js': 'javascript',
+            '.java': 'java',
+            '.cpp': 'cpp',
+            '.cc': 'cpp',
+            '.cxx': 'cpp',
+            '.go': 'go',
+        }
+        
+        language = extension_map.get(file_extension)
+        if not language:
             return None
         
-        tree = self.parser.parse(bytes(source_code, "utf8"))
+        if language not in self.parsers:
+            self.setup_language(language)
+        
+        return self.parsers.get(language), language
+    
+    def parse_file(self, source_code: str, file_path: str = None):
+        if file_path:
+            _, ext = os.path.splitext(file_path)
+            parser, _ = self.get_parser(ext) or (None, None)
+        else:
+            parser = self.parsers.get('python')
+        
+        if not parser:
+            return None
+        
+        tree = parser.parse(bytes(source_code, "utf8"))
         return tree
     
-    def extract_functions(self, tree, source_code: str):
+    def extract_functions(self, tree, source_code: str, language: str = 'python'):
         functions = []
         
         if not tree:
             return functions
         
+        function_types = {
+            'python': 'function_definition',
+            'javascript': 'function_declaration',
+            'java': 'method_declaration',
+            'cpp': 'function_definition',
+            'go': 'function_declaration',
+        }
+        
+        func_type = function_types.get(language, 'function_definition')
+        
         def traverse(node):
-            if node.type == 'function_definition':
-                func_info = self._extract_function_info(node, source_code)
+            if node.type == func_type:
+                func_info = self._extract_function_info(node, source_code, language)
                 if func_info:
                     functions.append(func_info)
             
@@ -43,14 +84,14 @@ class ASTParser:
         traverse(tree.root_node)
         return functions
     
-    def _extract_function_info(self, node, source_code: str):
+    def _extract_function_info(self, node, source_code: str, language: str = 'python'):
         name_node = None
         params_node = None
         
         for child in node.children:
             if child.type == 'identifier':
                 name_node = child
-            elif child.type == 'parameters':
+            elif child.type == 'parameters' or child.type == 'formal_parameters':
                 params_node = child
         
         if not name_node:
@@ -80,7 +121,9 @@ class ASTParser:
         
         def count_branches(n):
             nonlocal complexity
-            if n.type in ['if_statement', 'while_statement', 'for_statement', 'except_clause']:
+            if n.type in ['if_statement', 'while_statement', 'for_statement', 
+                         'except_clause', 'elif_clause', 'else_clause',
+                         'switch_statement', 'case_statement']:
                 complexity += 1
             for child in n.children:
                 count_branches(child)

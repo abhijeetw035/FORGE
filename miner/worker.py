@@ -61,6 +61,9 @@ def process_repository(task_data: dict, db: Session):
                     timestamp=commit_data['timestamp']
                 )
                 db.add(commit)
+                db.flush()
+                
+                process_commit_ast(commit, repo_path, db)
         
         db.commit()
         repo.status = "completed"
@@ -72,6 +75,47 @@ def process_repository(task_data: dict, db: Session):
         logger.error(f"Error processing repository {repo_id}: {e}")
         repo.status = "failed"
         db.commit()
+
+def process_commit_ast(commit: Commit, repo_path: str, db: Session):
+    try:
+        import git as gitpython
+        repo = gitpython.Repo(repo_path)
+        commit_obj = repo.commit(commit.sha)
+        
+        for item in commit_obj.tree.traverse():
+            if item.type == 'blob':
+                file_path = item.path
+                _, ext = os.path.splitext(file_path)
+                
+                if ext in ['.py', '.js', '.java', '.cpp', '.go']:
+                    try:
+                        source_code = item.data_stream.read().decode('utf-8')
+                        tree = ast_parser.parse_file(source_code, file_path)
+                        
+                        if tree:
+                            parser, language = ast_parser.get_parser(ext)
+                            functions = ast_parser.extract_functions(tree, source_code, language)
+                            
+                            for func_data in functions:
+                                function = Function(
+                                    commit_id=commit.id,
+                                    name=func_data['name'],
+                                    file_path=file_path,
+                                    start_line=func_data['start_line'],
+                                    end_line=func_data['end_line'],
+                                    complexity=func_data['complexity'],
+                                    lines_of_code=func_data['lines_of_code'],
+                                    parameters=func_data['parameters']
+                                )
+                                db.add(function)
+                    except Exception as e:
+                        logger.debug(f"Could not parse {file_path}: {e}")
+                        continue
+        
+        commit.processed = True
+        
+    except Exception as e:
+        logger.error(f"Error processing AST for commit {commit.sha}: {e}")
 
 def main():
     logger.info("Miner worker starting...")
