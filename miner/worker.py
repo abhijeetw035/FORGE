@@ -17,6 +17,12 @@ storage_path = os.getenv('STORAGE_PATH', '/storage')
 git_service = GitService(storage_path)
 ast_parser = ASTParser()
 
+try:
+    ast_parser.setup_python()
+    logger.info("Tree-sitter Python parser initialized successfully")
+except Exception as e:
+    logger.error(f"Failed to initialize Tree-sitter: {e}")
+
 def process_repository(task_data: dict, db: Session):
     repo_id = task_data['repository_id']
     url = task_data['url']
