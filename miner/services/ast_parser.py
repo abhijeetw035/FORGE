@@ -8,7 +8,15 @@ class ASTParser:
         self.language = None
         
     def setup_python(self):
-        pass
+        build_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'tree_sitter_builds')
+        language_so = os.path.join(build_dir, 'languages.so')
+        
+        if not os.path.exists(language_so):
+            raise FileNotFoundError(f"Language library not found at {language_so}. Run build_languages.py first.")
+        
+        self.language = Language(language_so, 'python')
+        self.parser = Parser()
+        self.parser.set_language(self.language)
     
     def parse_file(self, source_code: str):
         if not self.parser:
