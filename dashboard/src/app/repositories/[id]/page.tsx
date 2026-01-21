@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { ArrowLeft, GitBranch, Activity } from 'lucide-react';
-import { getRepository } from '@/lib/api';
+import { getRepository, getRepositoryHeatmap } from '@/lib/api';
+import Heatmap from '@/components/Heatmap';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -8,7 +9,10 @@ interface PageProps {
 
 export default async function RepositoryPage({ params }: PageProps) {
   const { id } = await params;
-  const repository = await getRepository(id);
+  const [repository, heatmapData] = await Promise.all([
+    getRepository(id),
+    getRepositoryHeatmap(id),
+  ]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -66,16 +70,8 @@ export default async function RepositoryPage({ params }: PageProps) {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-12">
-          <div className="text-center">
-            <Activity className="w-16 h-16 mx-auto mb-4 text-blue-600 dark:text-blue-400 animate-pulse" />
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-              Entropy Heatmap Coming Soon...
-            </h2>
-            <p className="text-gray-600 dark:text-gray-400">
-              Visualizing {repository.owner}/{repository.name} analysis data
-            </p>
-          </div>
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
+          <Heatmap data={heatmapData} />
         </div>
       </div>
     </div>

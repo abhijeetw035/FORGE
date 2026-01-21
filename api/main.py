@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import repositories
+from routes import repositories, analytics
 from database import engine
 from models import Base
 
@@ -15,6 +15,7 @@ app.add_middleware(
 )
 
 app.include_router(repositories.router)
+app.include_router(analytics.router)
 
 @app.on_event("startup")
 async def startup():
