@@ -3,8 +3,9 @@ import git
 from typing import Optional
 
 class GitService:
-    def __init__(self, storage_path: str):
+    def __init__(self, storage_path: str, github_token: Optional[str] = None):
         self.storage_path = storage_path
+        self.github_token = github_token
         os.makedirs(storage_path, exist_ok=True)
     
     def clone_repository(self, url: str, repo_id: int) -> str:
@@ -13,7 +14,11 @@ class GitService:
         if os.path.exists(repo_dir):
             return repo_dir
         
-        git.Repo.clone_from(url, repo_dir)
+        clone_url = url
+        if self.github_token and 'github.com' in url:
+            clone_url = url.replace('https://', f'https://{self.github_token}@')
+        
+        git.Repo.clone_from(clone_url, repo_dir)
         return repo_dir
     
     def get_commits(self, repo_path: str):

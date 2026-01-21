@@ -61,6 +61,7 @@ services:
       - DATABASE_URL=postgresql://forge_user:forge_pass@postgres:5432/forge
       - REDIS_URL=redis://redis:6379
       - STORAGE_PATH=/storage
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
     depends_on:
       postgres:
         condition: service_healthy

@@ -14,8 +14,14 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 storage_path = os.getenv('STORAGE_PATH', '/storage')
-git_service = GitService(storage_path)
+github_token = os.getenv('GITHUB_TOKEN')
+git_service = GitService(storage_path, github_token)
 ast_parser = ASTParser()
+
+if github_token:
+    logger.info("GitHub token detected - private repository access enabled")
+else:
+    logger.info("No GitHub token - only public repositories can be cloned")
 
 try:
     ast_parser.setup_python()
