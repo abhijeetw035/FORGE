@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import { ArrowLeft, GitBranch, Activity } from 'lucide-react';
-import { getRepository, getRepositoryHeatmap } from '@/lib/api';
+import { getRepository, getRepositoryHeatmap, getRepositoryTimeline, getRepositoryContributors } from '@/lib/api';
 import Heatmap from '@/components/Heatmap';
+import Timeline from '@/components/Timeline';
+import Contributors from '@/components/Contributors';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -9,9 +11,11 @@ interface PageProps {
 
 export default async function RepositoryPage({ params }: PageProps) {
   const { id } = await params;
-  const [repository, heatmapData] = await Promise.all([
+  const [repository, heatmapData, timelineData, contributorsData] = await Promise.all([
     getRepository(id),
     getRepositoryHeatmap(id),
+    getRepositoryTimeline(id),
+    getRepositoryContributors(id),
   ]);
 
   const getStatusColor = (status: string) => {
@@ -70,8 +74,16 @@ export default async function RepositoryPage({ params }: PageProps) {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8 mb-8">
           <Heatmap data={heatmapData} />
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8 mb-8">
+          <Timeline data={timelineData} />
+        </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-8">
+          <Contributors data={contributorsData} />
         </div>
       </div>
     </div>

@@ -6,6 +6,25 @@ export interface HeatmapData {
   score: number;
 }
 
+export interface TimelineData {
+  date: string;
+  sha: string;
+  message: string;
+  function_count: number;
+  avg_complexity: number;
+  total_loc: number;
+}
+
+export interface ContributorData {
+  author: string;
+  total_commits: number;
+  functions_added: number;
+  total_complexity: number;
+  avg_complexity: number;
+  total_loc: number;
+  entropy_score: number;
+}
+
 const getApiUrl = () => {
   if (typeof window === 'undefined') {
     return process.env.API_URL || 'http://api:8000';
@@ -46,6 +65,30 @@ export async function getRepositoryHeatmap(id: string): Promise<HeatmapData[]> {
   
   if (!response.ok) {
     throw new Error('Failed to fetch heatmap data');
+  }
+  
+  return response.json();
+}
+
+export async function getRepositoryTimeline(id: string): Promise<TimelineData[]> {
+  const response = await fetch(`${API_URL}/analytics/repositories/${id}/timeline`, {
+    cache: 'no-store',
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch timeline data');
+  }
+  
+  return response.json();
+}
+
+export async function getRepositoryContributors(id: string): Promise<ContributorData[]> {
+  const response = await fetch(`${API_URL}/analytics/repositories/${id}/contributors`, {
+    cache: 'no-store',
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch contributors data');
   }
   
   return response.json();
