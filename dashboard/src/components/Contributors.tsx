@@ -22,9 +22,9 @@ export default function Contributors({ data }: ContributorsProps) {
 
   const getEntropyColor = (score: number, maxScore: number) => {
     const ratio = score / maxScore;
-    if (ratio > 0.7) return 'text-red-400';
-    if (ratio > 0.4) return 'text-orange-400';
-    return 'text-green-400';
+    if (ratio > 0.7) return 'text-orange-400';
+    if (ratio > 0.4) return 'text-teal-400';
+    return 'text-blue-400';
   };
   // entropy color remains for the numeric value
 
@@ -111,9 +111,9 @@ export default function Contributors({ data }: ContributorsProps) {
       </div>
 
       {/* Top Contributor Highlight */}
-      <div className="bg-zinc-900/50 rounded-md p-6 border border-zinc-800 border-l-4 border-l-rose-500">
+      <div className="bg-zinc-900/50 rounded-md p-6 border border-zinc-800 border-l-4 border-l-orange-500">
         <div className="flex items-center gap-3 mb-4">
-          <Award className="w-8 h-8 text-yellow-400" />
+          <Award className="w-8 h-8 text-orange-400" />
           <div>
             <h4 className="text-lg font-bold text-zinc-100">
               Highest Entropy Contributor
@@ -145,7 +145,7 @@ export default function Contributors({ data }: ContributorsProps) {
       {/* Contributors Table */}
       <div className="glass-card p-6">
         <h4 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-          <Zap className="w-4 h-4 text-yellow-400" />
+          <Zap className="w-4 h-4 text-orange-400" />
           Detailed Contributor Breakdown
         </h4>
         <div className="overflow-x-auto">
@@ -232,11 +232,11 @@ export default function Contributors({ data }: ContributorsProps) {
       </div>
 
       {/* Interpretation Guide */}
-      <div className="bg-yellow-950/30 border border-yellow-800 rounded-md p-4">
-        <h4 className="text-sm font-semibold text-yellow-300 mb-2">
+      <div className="bg-blue-950/30 border border-blue-800 rounded-md p-4">
+        <h4 className="text-sm font-semibold text-blue-300 mb-2">
           📊 How to Read These Metrics
         </h4>
-        <div className="space-y-2 text-xs text-yellow-400">
+        <div className="space-y-2 text-xs text-blue-400">
           <p><strong>Entropy Score:</strong> Avg Complexity × Functions Added - indicates overall complexity contribution</p>
           <p><strong>High entropy isn't bad:</strong> Could mean working on algorithms, parsers, or refactoring legacy systems</p>
           <p><strong>Low entropy isn't bad:</strong> Could mean working on APIs, configs, or simple utilities</p>

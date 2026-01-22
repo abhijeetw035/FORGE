@@ -118,9 +118,9 @@ export default function Timeline({ data }: TimelineProps) {
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="complexityGradient" x1="0" y1="0" x2="0" y2="1">
-                  {/* Neon Cyan gradient fade to transparent */}
-                  <stop offset="5%" stopColor="rgb(34, 211, 238)" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="rgb(34, 211, 238)" stopOpacity={0} />
+                  {/* Professional Blue gradient fade to transparent */}
+                  <stop offset="5%" stopColor="rgb(59, 130, 246)" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="rgb(59, 130, 246)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" opacity={0.5} />
@@ -139,7 +139,7 @@ export default function Timeline({ data }: TimelineProps) {
               <Area 
                 type="monotone" 
                 dataKey="avg_complexity" 
-                stroke="rgb(34, 211, 238)"
+                stroke="rgb(96, 165, 250)"
                 strokeWidth={2}
                 fill="url(#complexityGradient)" 
               />
@@ -168,10 +168,10 @@ export default function Timeline({ data }: TimelineProps) {
               <Line 
                 type="monotone" 
                 dataKey="function_count" 
-                stroke="rgb(34, 211, 238)"
+                stroke="rgb(96, 165, 250)"
                 strokeWidth={2}
                 dot={{ r: 2 }}
-                activeDot={{ r: 5 }}
+                activeDot={{ r: 5, fill: 'rgb(249, 115, 22)' }}
                 name="Functions"
               />
             </LineChart>
@@ -182,26 +182,26 @@ export default function Timeline({ data }: TimelineProps) {
       <div className="grid grid-cols-3 gap-4">
         <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Code className="w-5 h-5 text-blue-400" />
+            <Code className="w-5 h-5 text-orange-400" />
             <p className="text-xs font-semibold text-zinc-300">Peak Complexity</p>
           </div>
-          <p className="text-2xl font-bold text-blue-400">{maxComplexity.toFixed(2)}</p>
+          <p className="text-2xl font-bold text-orange-400">{maxComplexity.toFixed(2)}</p>
         </div>
 
         <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <TrendingUp className="w-5 h-5 text-green-400" />
+            <TrendingUp className="w-5 h-5 text-blue-400" />
             <p className="text-xs font-semibold text-zinc-300">Max Functions</p>
           </div>
-          <p className="text-2xl font-bold text-green-400">{maxFunctions.toLocaleString()}</p>
+          <p className="text-2xl font-bold text-blue-400">{maxFunctions.toLocaleString()}</p>
         </div>
 
         <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <GitCommit className="w-5 h-5 text-purple-400" />
+            <GitCommit className="w-5 h-5 text-teal-400" />
             <p className="text-xs font-semibold text-zinc-300">Total Commits</p>
           </div>
-          <p className="text-2xl font-bold text-purple-400">{data.length}</p>
+          <p className="text-2xl font-bold text-teal-400">{data.length}</p>
         </div>
       </div>
     </div>
