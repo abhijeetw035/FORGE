@@ -25,6 +25,16 @@ export interface ContributorData {
   entropy_score: number;
 }
 
+export interface RiskPredictionData {
+  file_path: string;
+  churn: number;
+  complexity: number;
+  author_count: number;
+  risk_score: number;
+  risk_level: 'critical' | 'warning' | 'watchlist';
+  reason: string;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -223,4 +233,17 @@ export async function deleteRepository(id: number): Promise<void> {
     const error = await response.json().catch(() => ({ detail: 'Failed to delete repository' }));
     throw new Error(error.detail || 'Failed to delete repository');
   }
+}
+
+export async function getRepositoryRiskPrediction(id: string): Promise<RiskPredictionData[]> {
+  const response = await fetch(`${API_URL}/analytics/repositories/${id}/risk-prediction`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch risk predictions');
+  }
+  
+  return response.json();
 }

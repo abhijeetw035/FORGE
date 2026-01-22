@@ -4,6 +4,7 @@ from sqlalchemy import func
 from database import get_db
 from models import Function, Commit, Repository, User
 from dependencies import get_current_user
+from services.predictor import RiskPredictor
 
 router = APIRouter(prefix='/analytics', tags=['analytics'])
 
@@ -158,6 +159,59 @@ async def get_repository_contributors(
         ]
         
         return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/repositories/{repo_id}/risk-prediction")
+async def get_risk_prediction(
+    repo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    try:
+        # Verify user owns this repository
+        repo = db.query(Repository).filter(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id
+        ).first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
+        # Query file statistics: path, churn, complexity, author count
+        file_stats = (
+            db.query(
+                Function.file_path,
+                func.count(Function.id).label('churn'),
+                func.avg(Function.complexity).label('complexity'),
+                func.count(func.distinct(Commit.author)).label('author_count')
+            )
+            .join(Commit, Function.commit_id == Commit.id)
+            .filter(Commit.repository_id == repo_id)
+            .group_by(Function.file_path)
+            .all()
+        )
+        
+        if not file_stats:
+            return []
+        
+        # Convert to list of dicts for predictor
+        data = [
+            {
+                'file_path': row.file_path,
+                'churn': int(row.churn) if row.churn else 0,
+                'complexity': round(float(row.complexity), 2) if row.complexity else 0,
+                'author_count': int(row.author_count) if row.author_count else 1
+            }
+            for row in file_stats
+        ]
+        
+        # Run AI prediction
+        predictor = RiskPredictor(contamination=0.1)
+        predictions = predictor.predict_risk(data)
+        
+        # Return top 20 at-risk files
+        return predictions[:20]
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

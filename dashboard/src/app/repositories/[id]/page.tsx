@@ -4,13 +4,14 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { GitBranch } from 'lucide-react';
-import { getRepository, getRepositoryHeatmap, getRepositoryTimeline, getRepositoryContributors } from '@/lib/api';
+import { getRepository, getRepositoryHeatmap, getRepositoryTimeline, getRepositoryContributors, getRepositoryRiskPrediction } from '@/lib/api';
 import Heatmap from '@/components/Heatmap';
 import Timeline from '@/components/Timeline';
 import Contributors from '@/components/Contributors';
+import RiskPrediction from '@/components/RiskPrediction';
 import StatusPoller from '@/components/StatusPoller';
 import { Repository } from '@/types';
-import type { HeatmapData, TimelineData, ContributorData } from '@/lib/api';
+import type { HeatmapData, TimelineData, ContributorData, RiskPredictionData } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 interface PageProps {
@@ -23,6 +24,7 @@ export default function RepositoryPage({ params }: PageProps) {
   const [heatmapData, setHeatmapData] = useState<HeatmapData[]>([]);
   const [timelineData, setTimelineData] = useState<TimelineData[]>([]);
   const [contributorsData, setContributorsData] = useState<ContributorData[]>([]);
+  const [riskData, setRiskData] = useState<RiskPredictionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const router = useRouter();
@@ -33,7 +35,7 @@ export default function RepositoryPage({ params }: PageProps) {
   }, [params]);
 
   useEffect(() => {
-    if (authLoading) return; // Wait for auth to load
+    if (authLoading) return;
     
     if (!isAuthenticated) {
       router.push('/login');
@@ -44,17 +46,19 @@ export default function RepositoryPage({ params }: PageProps) {
 
     const fetchData = async () => {
       try {
-        const [repo, heatmap, timeline, contributors] = await Promise.all([
+        const [repo, heatmap, timeline, contributors, risks] = await Promise.all([
           getRepository(id),
           getRepositoryHeatmap(id),
           getRepositoryTimeline(id),
           getRepositoryContributors(id),
+          getRepositoryRiskPrediction(id),
         ]);
         
         setRepository(repo);
         setHeatmapData(heatmap);
         setTimelineData(timeline);
         setContributorsData(contributors);
+        setRiskData(risks);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load repository');
       } finally {
@@ -185,6 +189,12 @@ export default function RepositoryPage({ params }: PageProps) {
           <div className="lg:col-span-3">
             <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
               <Timeline data={timelineData} />
+            </div>
+          </div>
+
+          <div className="lg:col-span-3">
+            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
+              <RiskPrediction data={riskData} />
             </div>
           </div>
 
