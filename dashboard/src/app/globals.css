@@ -26,11 +26,14 @@
   
   body {
     @apply bg-black min-h-screen text-zinc-200;
-    background-image: linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-                      linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-    background-size: 32px 32px;
-    background-position: center top;
-    /* Make the grid subtle - barely there texture */
+    background-image: 
+      /* Noise texture for depth */
+      url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E"),
+      /* Grid overlay */
+      linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+    background-size: 400px 400px, 32px 32px, 32px 32px;
+    background-position: center top, center top, center top;
     background-color: #000000;
   }
   
@@ -74,5 +77,13 @@
     transform: translateY(-100vh);
     opacity: 0;
   }
+}
+
+/* Premium Glassmorphism Utility */
+.glass-card {
+  @apply bg-zinc-900/60 backdrop-blur-xl border border-white/10 rounded-xl;
+  box-shadow: 
+    0 8px 32px 0 rgba(0, 0, 0, 0.36),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
 }
 

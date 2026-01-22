@@ -125,7 +125,7 @@ export default function Heatmap({ data }: HeatmapProps) {
   }));
 
   return (
-    <div className="w-full h-[600px] bg-zinc-950/50 rounded-lg p-4">
+    <div className="w-full h-[600px] glass-card p-4">
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-zinc-100">

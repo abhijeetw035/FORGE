@@ -61,7 +61,7 @@ export default function Contributors({ data }: ContributorsProps) {
       </div>
 
       {/* Disclaimer */}
-      <div className="bg-zinc-950/50 border border-zinc-800 rounded-md p-4">
+      <div className="glass-card p-4">
         <div className="flex items-start gap-3">
           <div className="text-2xl">ℹ️</div>
           <div>
@@ -77,7 +77,7 @@ export default function Contributors({ data }: ContributorsProps) {
 
       {/* Summary Stats */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800 border-l-2 border-zinc-700">
+        <div className="glass-card p-4 border-l-2 border-zinc-700">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-5 h-5 text-zinc-300" />
             <p className="text-xs font-semibold text-zinc-400">Contributors</p>
@@ -85,7 +85,7 @@ export default function Contributors({ data }: ContributorsProps) {
           <p className="text-2xl font-bold text-zinc-50">{data.length}</p>
         </div>
 
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800 border-l-2 border-zinc-700">
+        <div className="glass-card p-4 border-l-2 border-zinc-700">
           <div className="flex items-center gap-2 mb-2">
             <GitCommit className="w-5 h-5 text-zinc-300" />
             <p className="text-xs font-semibold text-zinc-400">Total Commits</p>
@@ -93,7 +93,7 @@ export default function Contributors({ data }: ContributorsProps) {
           <p className="text-2xl font-bold text-zinc-50">{totalCommits.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800 border-l-2 border-zinc-700">
+        <div className="glass-card p-4 border-l-2 border-zinc-700">
           <div className="flex items-center gap-2 mb-2">
             <Code className="w-5 h-5 text-zinc-300" />
             <p className="text-xs font-semibold text-zinc-400">Functions</p>
@@ -101,7 +101,7 @@ export default function Contributors({ data }: ContributorsProps) {
           <p className="text-2xl font-bold text-zinc-50">{totalFunctions.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800 border-l-2 border-zinc-700">
+        <div className="glass-card p-4 border-l-2 border-zinc-700">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-5 h-5 text-zinc-300" />
             <p className="text-xs font-semibold text-zinc-400">Lines of Code</p>
@@ -143,7 +143,7 @@ export default function Contributors({ data }: ContributorsProps) {
       </div>
 
       {/* Contributors Table */}
-      <div className="bg-zinc-950/50 rounded-md p-6 border border-zinc-800">
+      <div className="glass-card p-6">
         <h4 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
           <Zap className="w-4 h-4 text-yellow-400" />
           Detailed Contributor Breakdown

@@ -111,7 +111,7 @@ export default function Timeline({ data }: TimelineProps) {
         </div>
       )}
 
-      <div className="bg-zinc-950/50 rounded-md p-4">
+      <div className="glass-card p-4">
         <div className="mb-4">
           <h4 className="text-sm font-medium text-zinc-300 mb-2">Average Complexity Trend</h4>
           <ResponsiveContainer width="100%" height={250} style={{ background: 'transparent' }}>
@@ -180,7 +180,7 @@ export default function Timeline({ data }: TimelineProps) {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800">
+        <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <Code className="w-5 h-5 text-blue-400" />
             <p className="text-xs font-semibold text-zinc-300">Peak Complexity</p>
@@ -188,7 +188,7 @@ export default function Timeline({ data }: TimelineProps) {
           <p className="text-2xl font-bold text-blue-400">{maxComplexity.toFixed(2)}</p>
         </div>
 
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800">
+        <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-5 h-5 text-green-400" />
             <p className="text-xs font-semibold text-zinc-300">Max Functions</p>
@@ -196,7 +196,7 @@ export default function Timeline({ data }: TimelineProps) {
           <p className="text-2xl font-bold text-green-400">{maxFunctions.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950/50 rounded-md p-4 border border-zinc-800">
+        <div className="glass-card p-4">
           <div className="flex items-center gap-2 mb-2">
             <GitCommit className="w-5 h-5 text-purple-400" />
             <p className="text-xs font-semibold text-zinc-300">Total Commits</p>

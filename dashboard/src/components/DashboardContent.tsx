@@ -37,7 +37,7 @@ export default function DashboardContent({ initialRepositories, onRepositoryAdde
         <div className="relative z-10 container mx-auto px-4 py-8 max-w-7xl">
           <header className="flex items-center justify-between mb-12 py-6 animate-in fade-in slide-in-from-top-4 duration-700">
             <div className="flex items-center gap-4">
-              <div className="p-3 bg-zinc-950/60 backdrop-blur-md border border-zinc-800/50 rounded-md shadow-lg">
+              <div className="glass-card p-3">
                 <Zap className="w-8 h-8 text-zinc-50" />
               </div>
               <div>
@@ -54,7 +54,7 @@ export default function DashboardContent({ initialRepositories, onRepositoryAdde
               <ThemeToggle />
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-zinc-50 border border-zinc-800/50 hover:border-zinc-700 rounded-md transition bg-zinc-950/40 backdrop-blur-md"
+                className="glass-card flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-zinc-50 hover:border-zinc-700 transition"
               >
                 <LogOut className="w-4 h-4" />
                 Logout
@@ -72,7 +72,7 @@ export default function DashboardContent({ initialRepositories, onRepositoryAdde
           {initialRepositories.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-32">
               <div className="relative mb-8">
-                <div className="p-8 bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-md shadow-2xl">
+                <div className="glass-card p-8">
                   <GitBranch className="w-20 h-20 text-zinc-400" />
                 </div>
               </div>

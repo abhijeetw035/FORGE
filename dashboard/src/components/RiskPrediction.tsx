@@ -153,7 +153,7 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
         </div>
       )}
 
-      <div className="bg-zinc-950/50 border border-zinc-800 rounded-md p-4">
+      <div className="glass-card p-4">
         <h4 className="text-sm font-semibold text-zinc-300 mb-2">
           💡 Interpretation Guide
         </h4>

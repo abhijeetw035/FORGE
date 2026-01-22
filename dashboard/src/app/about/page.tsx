@@ -20,7 +20,7 @@ export default function AboutPage() {
           </div>
 
           {/* Introduction */}
-          <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-8 mb-12">
+          <div className="glass-card p-8 mb-12">
             <div className="flex items-start gap-4 mb-6">
               <Brain className="w-8 h-8 text-cyan-400 flex-shrink-0 mt-1" />
               <div>
@@ -46,7 +46,7 @@ export default function AboutPage() {
             </h2>
             
             <div className="grid md:grid-cols-2 gap-6">
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6">
+              <div className="glass-card p-6">
                 <h3 className="text-xl font-semibold text-zinc-100 mb-3 flex items-center gap-2">
                   <GitBranch className="w-5 h-5 text-emerald-400" />
                   Code Churn
@@ -61,7 +61,7 @@ export default function AboutPage() {
                 </div>
               </div>
 
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6">
+              <div className="glass-card p-6">
                 <h3 className="text-xl font-semibold text-zinc-100 mb-3 flex items-center gap-2">
                   <Brain className="w-5 h-5 text-violet-400" />
                   Complexity Score
@@ -76,7 +76,7 @@ export default function AboutPage() {
                 </div>
               </div>
 
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6">
+              <div className="glass-card p-6">
                 <h3 className="text-xl font-semibold text-zinc-100 mb-3 flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-cyan-400" />
                   Entropy Score
@@ -89,7 +89,7 @@ export default function AboutPage() {
                 </div>
               </div>
 
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6">
+              <div className="glass-card p-6">
                 <h3 className="text-xl font-semibold text-zinc-100 mb-3 flex items-center gap-2">
                   <Users className="w-5 h-5 text-amber-400" />
                   Team Impact
@@ -155,7 +155,7 @@ export default function AboutPage() {
             </h2>
 
             <div className="grid md:grid-cols-3 gap-6">
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6 hover:border-cyan-700 transition-colors">
+              <div className="glass-card p-6 hover:border-cyan-700 transition-colors">
                 <Shield className="w-8 h-8 text-cyan-400 mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Code Reviews</h3>
                 <p className="text-sm text-zinc-400">
@@ -163,7 +163,7 @@ export default function AboutPage() {
                 </p>
               </div>
 
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6 hover:border-violet-700 transition-colors">
+              <div className="glass-card p-6 hover:border-violet-700 transition-colors">
                 <TrendingUp className="w-8 h-8 text-violet-400 mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Refactor Planning</h3>
                 <p className="text-sm text-zinc-400">
@@ -171,7 +171,7 @@ export default function AboutPage() {
                 </p>
               </div>
 
-              <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 rounded-lg p-6 hover:border-amber-700 transition-colors">
+              <div className="glass-card p-6 hover:border-amber-700 transition-colors">
                 <Users className="w-8 h-8 text-amber-400 mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Onboarding</h3>
                 <p className="text-sm text-zinc-400">

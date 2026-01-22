@@ -81,7 +81,7 @@ export default function RepositoryCard({ repository }: RepositoryCardProps) {
   };
 
   return (
-    <div className="group relative bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 hover:border-zinc-700/80 rounded-md transition-all duration-300 shadow-2xl hover:shadow-zinc-900/50 overflow-hidden hover:-translate-y-1">
+    <div className="group relative glass-card overflow-hidden transition-all duration-300 hover:border-zinc-700/80 hover:shadow-zinc-900/50 hover:-translate-y-1">
       
       <button
         onClick={handleDelete}
