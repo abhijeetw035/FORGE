@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import repositories, analytics
+from routes import repositories, analytics, auth
 from database import engine
 from models import Base
 
@@ -14,6 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router)
 app.include_router(repositories.router)
 app.include_router(analytics.router)
 

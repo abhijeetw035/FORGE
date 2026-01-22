@@ -26,6 +26,9 @@ class ASTParser:
         extension_map = {
             '.py': 'python',
             '.js': 'javascript',
+            '.jsx': 'javascript',  # JSX uses JavaScript parser
+            '.ts': 'javascript',   # TypeScript (if tree-sitter-javascript supports it)
+            '.tsx': 'javascript',  # TSX uses JavaScript parser
             '.java': 'java',
             '.go': 'go',
         }
@@ -58,20 +61,36 @@ class ASTParser:
         if not tree:
             return functions
         
+        # Define all function-like node types for each language
         function_types = {
-            'python': 'function_definition',
-            'javascript': 'function_declaration',
-            'java': 'method_declaration',
-            'go': 'function_declaration',
+            'python': ['function_definition'],
+            'javascript': [
+                'function_declaration', 
+                'function_expression',
+                'arrow_function',
+                'method_definition'
+            ],
+            'java': ['method_declaration'],
+            'go': ['function_declaration'],
         }
         
-        func_type = function_types.get(language, 'function_definition')
+        func_types = function_types.get(language, ['function_definition'])
         
         def traverse(node):
-            if node.type == func_type:
+            if node.type in func_types:
                 func_info = self._extract_function_info(node, source_code, language)
                 if func_info:
                     functions.append(func_info)
+            
+            # Also check for variable declarations with function values (const Comp = () => {})
+            if language == 'javascript' and node.type == 'variable_declarator':
+                # Check if the value is a function
+                for child in node.children:
+                    if child.type in ['arrow_function', 'function_expression']:
+                        func_info = self._extract_function_info(node, source_code, language)
+                        if func_info:
+                            functions.append(func_info)
+                        break
             
             for child in node.children:
                 traverse(child)
@@ -83,11 +102,30 @@ class ASTParser:
         name_node = None
         params_node = None
         
-        for child in node.children:
-            if child.type == 'identifier':
-                name_node = child
-            elif child.type == 'parameters' or child.type == 'formal_parameters':
-                params_node = child
+        # For variable_declarator (e.g., const MyComponent = () => {}), extract identifier
+        if node.type == 'variable_declarator':
+            for child in node.children:
+                if child.type == 'identifier':
+                    name_node = child
+                    break
+            # Get params from the function value
+            for child in node.children:
+                if child.type in ['arrow_function', 'function_expression']:
+                    for subchild in child.children:
+                        if subchild.type == 'formal_parameters':
+                            params_node = subchild
+                            break
+                    break
+        else:
+            # Normal function declaration/expression
+            for child in node.children:
+                if child.type == 'identifier':
+                    name_node = child
+                elif child.type == 'parameters' or child.type == 'formal_parameters':
+                    params_node = child
+                # For method_definition, get property_identifier
+                elif language == 'javascript' and child.type == 'property_identifier':
+                    name_node = child
         
         if not name_node:
             return None
@@ -100,6 +138,9 @@ class ASTParser:
         if params_node:
             for param in params_node.children:
                 if param.type == 'identifier':
+                    params.append(source_code[param.start_byte:param.end_byte])
+                # Handle destructured parameters {prop1, prop2}
+                elif param.type == 'object_pattern':
                     params.append(source_code[param.start_byte:param.end_byte])
         
         return {

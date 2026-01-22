@@ -9,12 +9,19 @@ interface HeatmapProps {
 
 const getColorByScore = (score: number, maxScore: number) => {
   const ratio = score / maxScore;
+
+  // Cyberpunk/Data Palette: Emerald (low) -> Amber (medium) -> Rose (high)
+  if (ratio > 0.7) {
+    // High Risk: Glowing Rose
+    return { fill: 'rgba(225, 29, 72, 0.5)', stroke: 'rgb(244, 63, 94)' }; // fill-rose-950/50 stroke-rose-500
+  }
+  if (ratio > 0.4) {
+    // Medium Risk: Glowing Amber
+    return { fill: 'rgba(245, 158, 11, 0.5)', stroke: 'rgb(245, 158, 11)' }; // fill-amber-950/50 stroke-amber-500
+  }
   
-  if (ratio > 0.8) return '#dc2626';
-  if (ratio > 0.6) return '#ea580c';
-  if (ratio > 0.4) return '#f59e0b';
-  if (ratio > 0.2) return '#fbbf24';
-  return '#84cc16';
+  // Low Risk: Glowing Emerald
+  return { fill: 'rgba(6, 78, 59, 0.5)', stroke: 'rgb(16, 185, 129)' }; // fill-emerald-950/50 stroke-emerald-500
 };
 
 interface CustomContentProps {
@@ -38,14 +45,26 @@ const CustomContent = (props: CustomContentProps) => {
   
   return (
     <g>
+      {/* tile fill */}
       <rect
         x={x}
         y={y}
         width={width}
         height={height}
-        fill={color}
-        stroke="#fff"
-        strokeWidth={2}
+        fill={color.fill}
+        stroke={color.stroke}
+        strokeWidth={1}
+        rx={4}
+      />
+      {/* subtle outer zinc-950 border for glass tile separation */}
+      <rect
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        fill="none"
+        stroke="#0b1220"
+        strokeWidth={1}
         rx={4}
       />
       {showText && (
@@ -54,7 +73,7 @@ const CustomContent = (props: CustomContentProps) => {
             x={x + width / 2}
             y={y + height / 2 - 8}
             textAnchor="middle"
-            fill="#fff"
+            fill="#ffffff"
             fontSize={12}
             fontWeight="bold"
           >
@@ -64,7 +83,7 @@ const CustomContent = (props: CustomContentProps) => {
             x={x + width / 2}
             y={y + height / 2 + 10}
             textAnchor="middle"
-            fill="#fff"
+            fill="#ffffff"
             fontSize={10}
           >
             Churn: {score.toLocaleString()}
@@ -79,10 +98,10 @@ const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
-      <div className="bg-gray-900 text-white p-4 rounded-lg shadow-xl border border-gray-700">
+      <div className="bg-zinc-950 border border-zinc-800 text-zinc-200 p-4 rounded-md shadow-xl">
         <p className="font-semibold mb-2 text-sm">{data.name}</p>
-        <p className="text-xs text-gray-300">Size: {data.size.toLocaleString()} LOC</p>
-        <p className="text-xs text-gray-300">Churn: {data.score.toLocaleString()} modifications</p>
+        <p className="text-xs">Size: {data.size.toLocaleString()} LOC</p>
+        <p className="text-xs">Churn: {data.score.toLocaleString()} modifications</p>
       </div>
     );
   }
@@ -92,7 +111,7 @@ const CustomTooltip = ({ active, payload }: any) => {
 export default function Heatmap({ data }: HeatmapProps) {
   if (!data || data.length === 0) {
     return (
-      <div className="text-center py-20 text-gray-500">
+      <div className="text-center py-20 text-zinc-500">
         No heatmap data available
       </div>
     );
@@ -106,25 +125,23 @@ export default function Heatmap({ data }: HeatmapProps) {
   }));
 
   return (
-    <div className="w-full h-[600px] bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
+    <div className="w-full h-[600px] bg-zinc-950/50 rounded-lg p-4">
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold text-zinc-100">
             Code Churn Heatmap
           </h3>
-          <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-2 text-xs text-zinc-500">
             <span>Low Risk</span>
             <div className="flex gap-1">
-              <div className="w-6 h-4 bg-[#84cc16] rounded"></div>
-              <div className="w-6 h-4 bg-[#fbbf24] rounded"></div>
-              <div className="w-6 h-4 bg-[#f59e0b] rounded"></div>
-              <div className="w-6 h-4 bg-[#ea580c] rounded"></div>
-              <div className="w-6 h-4 bg-[#dc2626] rounded"></div>
+              <div className="w-6 h-4 rounded" style={{ background: 'rgba(6, 78, 59, 0.6)', border: '1px solid rgb(16, 185, 129)' }}></div>
+              <div className="w-6 h-4 rounded" style={{ background: 'rgba(245, 158, 11, 0.6)', border: '1px solid rgb(245, 158, 11)' }}></div>
+              <div className="w-6 h-4 rounded" style={{ background: 'rgba(225, 29, 72, 0.6)', border: '1px solid rgb(244, 63, 94)' }}></div>
             </div>
             <span>High Risk</span>
           </div>
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-zinc-500">
           Box size = Lines of Code | Color = Modification frequency
         </p>
       </div>

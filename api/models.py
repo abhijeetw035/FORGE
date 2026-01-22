@@ -3,18 +3,30 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
 
+class User(Base):
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    password_hash = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    repositories = relationship("Repository", back_populates="owner_user", cascade="all, delete-orphan")
+
 class Repository(Base):
     __tablename__ = "repositories"
     
     id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # nullable for migration compatibility
     url = Column(String, unique=True, nullable=False, index=True)
     name = Column(String, nullable=False)
-    owner = Column(String, nullable=False)
+    owner = Column(String, nullable=False)  # keeping this for backward compatibility (GitHub repo owner)
     clone_path = Column(String)
     status = Column(String, default="pending")
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    owner_user = relationship("User", back_populates="repositories")
     commits = relationship("Commit", back_populates="repository", cascade="all, delete-orphan")
 
 class Commit(Base):

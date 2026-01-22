@@ -2,13 +2,26 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database import get_db
-from models import Function, Commit, Repository
+from models import Function, Commit, Repository, User
+from dependencies import get_current_user
 
 router = APIRouter(prefix='/analytics', tags=['analytics'])
 
 @router.get("/repositories/{repo_id}/heatmap")
-async def get_repository_heatmap(repo_id: int, db: Session = Depends(get_db)):
+async def get_repository_heatmap(
+    repo_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     try:
+        # Verify user owns this repository
+        repo = db.query(Repository).filter(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id
+        ).first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
         heatmap_data = (
             db.query(
                 Function.file_path.label('name'),
@@ -38,8 +51,20 @@ async def get_repository_heatmap(repo_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/repositories/{repo_id}/timeline")
-async def get_repository_timeline(repo_id: int, db: Session = Depends(get_db)):
+async def get_repository_timeline(
+    repo_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     try:
+        # Verify user owns this repository
+        repo = db.query(Repository).filter(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id
+        ).first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
         timeline_data = (
             db.query(
                 Commit.timestamp.label('date'),
@@ -74,7 +99,11 @@ async def get_repository_timeline(repo_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/repositories/{repo_id}/contributors")
-async def get_repository_contributors(repo_id: int, db: Session = Depends(get_db)):
+async def get_repository_contributors(
+    repo_id: int, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     """
     Analyze contributor impact: who adds the most complexity?
     
@@ -87,6 +116,14 @@ async def get_repository_contributors(repo_id: int, db: Session = Depends(get_db
     - entropy_score: Weighted score (complexity * functions)
     """
     try:
+        # Verify user owns this repository
+        repo = db.query(Repository).filter(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id
+        ).first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+        
         entropy_score_col = (func.avg(Function.complexity) * func.count(Function.id)).label('entropy_score')
         
         contributor_data = (
