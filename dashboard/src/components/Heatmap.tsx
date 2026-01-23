@@ -69,7 +69,6 @@ const CustomContent = (props: CustomContentProps) => {
             textAnchor="middle"
             fill="#ffffff"
             fontSize={12}
-            fontWeight="bold"
           >
             {name.split('/').pop()}
           </text>

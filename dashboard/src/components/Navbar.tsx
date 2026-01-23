@@ -30,6 +30,12 @@ export default function Navbar() {
           {/* Right Side */}
           <div className="flex items-center gap-4">
             <Link
+              href="/features"
+              className="text-sm text-zinc-400 hover:text-zinc-100 transition"
+            >
+              Features
+            </Link>
+            <Link
               href="/about"
               className="text-sm text-zinc-400 hover:text-zinc-100 transition"
             >

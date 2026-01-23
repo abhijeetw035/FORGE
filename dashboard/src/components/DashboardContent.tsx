@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Plus, Zap, GitBranch, Sparkles, LogOut } from 'lucide-react';
 import { Repository } from '@/types';
 import AddRepositoryModal from '@/components/AddRepositoryModal';
@@ -36,19 +37,19 @@ export default function DashboardContent({ initialRepositories, onRepositoryAdde
       <div className="min-h-screen">
         <div className="relative z-10 container mx-auto px-4 py-8 max-w-7xl">
           <header className="flex items-center justify-between mb-12 py-6 animate-in fade-in slide-in-from-top-4 duration-700">
-            <div className="flex items-center gap-4">
+            <Link href="/" className="flex items-center gap-4 group cursor-pointer">
               <div className="glass-card p-3">
-                <Zap className="w-8 h-8 text-zinc-50" />
+                <Zap className="w-8 h-8 text-zinc-50 group-hover:text-primary transition-colors" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold text-zinc-50 tracking-tight">
+                <h1 className="text-4xl font-bold text-zinc-50 tracking-tight group-hover:text-primary transition-colors">
                   FORGE
                 </h1>
                 <p className="text-sm text-zinc-400 mt-1">
                   Code Entropy Analysis Platform
                 </p>
               </div>
-            </div>
+            </Link>
             
             <div className="flex items-center gap-4">
               <ThemeToggle />

@@ -60,7 +60,7 @@ export default function RepositoryLayout({ children, params }: LayoutProps) {
         <div className="p-6">
           <Link 
             href="/dashboard"
-            className="flex items-center gap-2 px-4 py-3 mb-6 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 transition-all duration-200 border border-zinc-800"
+            className="flex items-center gap-2 px-4 py-3 mb-6 rounded-lg text-white bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-700 hover:border-zinc-600 transition-all duration-200"
           >
             <ArrowLeft className="w-5 h-5" />
             <span className="font-medium">All Repositories</span>
