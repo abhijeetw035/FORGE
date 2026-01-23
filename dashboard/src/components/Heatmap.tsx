@@ -119,7 +119,7 @@ export default function Heatmap({ data }: HeatmapProps) {
   }));
 
   return (
-    <div className="w-full h-[600px] glass-card p-4">
+    <div className="w-full min-h-[600px]">
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-zinc-100">
@@ -140,7 +140,7 @@ export default function Heatmap({ data }: HeatmapProps) {
         </p>
       </div>
       
-      <ResponsiveContainer width="100%" height="90%">
+      <ResponsiveContainer width="100%" height={600}>
         <Treemap
           data={treeData}
           dataKey="size"

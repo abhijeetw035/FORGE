@@ -3,15 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { GitBranch } from 'lucide-react';
-import { getRepository, getRepositoryHeatmap, getRepositoryTimeline, getRepositoryContributors, getRepositoryRiskPrediction } from '@/lib/api';
-import Heatmap from '@/components/Heatmap';
-import Timeline from '@/components/Timeline';
-import Contributors from '@/components/Contributors';
-import RiskPrediction from '@/components/RiskPrediction';
+import { GitBranch, GitCommit, Activity, AlertTriangle } from 'lucide-react';
+import { getRepository, getRepositoryTimeline, getRepositoryRiskPrediction } from '@/lib/api';
 import StatusPoller from '@/components/StatusPoller';
 import { Repository } from '@/types';
-import type { HeatmapData, TimelineData, ContributorData, RiskPredictionData } from '@/lib/api';
+import type { TimelineData, RiskPredictionData } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 interface PageProps {
@@ -21,9 +17,7 @@ interface PageProps {
 export default function RepositoryPage({ params }: PageProps) {
   const [id, setId] = useState<string>('');
   const [repository, setRepository] = useState<Repository | null>(null);
-  const [heatmapData, setHeatmapData] = useState<HeatmapData[]>([]);
   const [timelineData, setTimelineData] = useState<TimelineData[]>([]);
-  const [contributorsData, setContributorsData] = useState<ContributorData[]>([]);
   const [riskData, setRiskData] = useState<RiskPredictionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
@@ -46,18 +40,14 @@ export default function RepositoryPage({ params }: PageProps) {
 
     const fetchData = async () => {
       try {
-        const [repo, heatmap, timeline, contributors, risks] = await Promise.all([
+        const [repo, timeline, risks] = await Promise.all([
           getRepository(id),
-          getRepositoryHeatmap(id),
           getRepositoryTimeline(id),
-          getRepositoryContributors(id),
           getRepositoryRiskPrediction(id),
         ]);
         
         setRepository(repo);
-        setHeatmapData(heatmap);
         setTimelineData(timeline);
-        setContributorsData(contributors);
         setRiskData(risks);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load repository');
@@ -112,10 +102,11 @@ export default function RepositoryPage({ params }: PageProps) {
   };
 
   return (
-    <div className="min-h-screen">
+    <>
       <StatusPoller repositories={[repository]} />
-      <div className="container mx-auto px-4 py-12 max-w-7xl">
-        <header className="mb-8 pb-6 border-b border-zinc-800 animate-in fade-in slide-in-from-top-4 duration-700">
+      
+      <div className="max-w-6xl mx-auto">
+        <header className="mb-8">
           <nav className="text-sm text-zinc-400 mb-4">
             <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-100">
               Dashboard
@@ -147,32 +138,83 @@ export default function RepositoryPage({ params }: PageProps) {
           </div>
         </header>
 
-        <div className="grid grid-cols-12 gap-6">
-          <div className="col-span-12 md:col-span-4">
-            <div className="glass-card p-6">
-              <RiskPrediction data={riskData} />
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold text-white mb-2">Overview</h2>
+          <p className="text-zinc-400">High-level summary of repository metrics and health</p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="glass-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-blue-500/10 rounded-lg">
+                <GitCommit className="w-6 h-6 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-400">Total Commits</p>
+                <p className="text-2xl font-bold text-white">
+                  {timelineData.length.toLocaleString()}
+                </p>
+              </div>
             </div>
+            <p className="text-xs text-zinc-500">Tracked across entire repository history</p>
           </div>
 
-          <div className="col-span-12 md:col-span-8">
-            <div className="glass-card p-6">
-              <Heatmap data={heatmapData} />
+          <div className="glass-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-orange-500/10 rounded-lg">
+                <Activity className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-400">Complexity Score</p>
+                <p className="text-2xl font-bold text-white">
+                  {timelineData.length > 0 
+                    ? Math.round(timelineData[timelineData.length - 1].avg_complexity)
+                    : 0}
+                </p>
+              </div>
             </div>
+            <p className="text-xs text-zinc-500">Average cyclomatic complexity</p>
           </div>
 
-          <div className="col-span-12">
-            <div className="glass-card p-6">
-              <Timeline data={timelineData} />
+          <div className="glass-card p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-red-500/10 rounded-lg">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <p className="text-sm text-zinc-400">Risk Level</p>
+                <p className="text-2xl font-bold text-white">
+                  {riskData.filter(d => d.risk_level === 'critical').length}
+                </p>
+              </div>
             </div>
+            <p className="text-xs text-zinc-500">Critical files requiring attention</p>
           </div>
+        </div>
 
-          <div className="col-span-12">
-            <div className="glass-card p-6">
-              <Contributors data={contributorsData} />
-            </div>
+        <div className="glass-card p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Link 
+              href={`/repositories/${id}/heatmap`}
+              className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-blue-500 transition-all group"
+            >
+              <Activity className="w-5 h-5 text-blue-400 mb-2" />
+              <h4 className="font-semibold text-white mb-1">Explore Entropy Map</h4>
+              <p className="text-sm text-zinc-400">Visualize code complexity hotspots</p>
+            </Link>
+
+            <Link 
+              href={`/repositories/${id}/risk`}
+              className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-blue-500 transition-all group"
+            >
+              <AlertTriangle className="w-5 h-5 text-red-400 mb-2" />
+              <h4 className="font-semibold text-white mb-1">View Risk Forecast</h4>
+              <p className="text-sm text-zinc-400">AI-powered predictions for at-risk files</p>
+            </Link>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }
