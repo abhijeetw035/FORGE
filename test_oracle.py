@@ -22,7 +22,7 @@ def test_oracle():
     )
     
     if login_response.status_code != 200:
-        print(f"❌ Login failed: {login_response.text}")
+        print(f" Login failed: {login_response.text}")
         print("\n💡 Update the email/password in test_oracle.py with your actual credentials")
         return
     
@@ -36,7 +36,7 @@ def test_oracle():
     repos = repos_response.json()
     
     if not repos:
-        print("❌ No repositories found")
+        print(" No repositories found")
         return
     
     print(f"✅ Found {len(repos)} repositories\n")
@@ -57,7 +57,7 @@ def test_oracle():
         )
         
         if risk_response.status_code != 200:
-            print(f"❌ Failed: {risk_response.text}")
+            print(f" Failed: {risk_response.text}")
             continue
         
         predictions = risk_response.json()
@@ -69,7 +69,7 @@ def test_oracle():
         print(f"✅ AI analyzed {len(predictions)} files\n")
         
         # Show top 5 predictions
-        print("🎯 Top 5 At-Risk Files:")
+        print(" Top 5 At-Risk Files:")
         print("-" * 60)
         
         for i, pred in enumerate(predictions[:5], 1):
@@ -97,6 +97,6 @@ if __name__ == "__main__":
     try:
         test_oracle()
     except requests.exceptions.ConnectionError:
-        print("❌ Could not connect to API. Make sure docker-compose is running.")
+        print(" Could not connect to API. Make sure docker-compose is running.")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")

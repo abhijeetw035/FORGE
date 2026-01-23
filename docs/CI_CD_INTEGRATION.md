@@ -2,7 +2,7 @@
 
 This guide explains how to integrate FORGE into your GitHub Actions workflow to automatically analyze PRs.
 
-## 🎯 What It Does
+##  What It Does
 
 The FORGE GitHub Action:
 - ✅ Analyzes every pull request automatically
@@ -214,7 +214,7 @@ Monitor your workflow effectiveness:
 3. **Developer Feedback**: Are warnings helpful?
 4. **Review Time**: Does it reduce review iterations?
 
-## 🎯 Best Practices
+##  Best Practices
 
 ### Do's ✅
 - **Start with high thresholds** - Avoid alert fatigue
@@ -222,7 +222,7 @@ Monitor your workflow effectiveness:
 - **Use with other tools** - Combine with linters, security scanners
 - **Educate the team** - Explain churn scores in team meetings
 
-### Don'ts ❌
+### Don'ts 
 - **Don't block merges** - Use as guidance, not gates
 - **Don't shame developers** - High churn isn't always bad
 - **Don't ignore context** - New features naturally increase churn

@@ -17,7 +17,7 @@ FORGE analyzes your codebase using AST parsing to reveal high-risk files based o
 - 🔍 **Multi-Language AST Parsing** - Python, JavaScript, Java, Go
 - 📊 **Interactive Heatmaps** - Visual risk assessment via treemaps
 - 🔥 **Code Churn Analysis** - Track modification frequency over time
-- 🎯 **Complexity Metrics** - Cyclomatic complexity per function
+-  **Complexity Metrics** - Cyclomatic complexity per function
 - 🔐 **Private Repository Support** - GitHub token authentication
 - 🚀 **Production Ready** - Docker Compose orchestration
 - ⚡ **Fast Queries** - Sub-second analytics on millions of records
@@ -104,7 +104,7 @@ graph LR
 
 ---
 
-## 🎯 Use Cases
+##  Use Cases
 
 ### Engineering Managers
 > "Which files have the most technical debt?"

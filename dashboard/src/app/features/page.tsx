@@ -49,7 +49,7 @@ export default function FeaturesPage() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-3">🎯 How to Use It</h3>
+                  <h3 className="text-lg font-semibold text-white mb-3"> How to Use It</h3>
                   <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-4 space-y-2 text-sm text-zinc-300">
                     <p>• <strong className="text-white">Identify Hotspots:</strong> Large red boxes are high-churn, high-impact files</p>
                     <p>• <strong className="text-white">Prioritize Reviews:</strong> Focus code reviews on red/blue areas</p>
@@ -105,7 +105,7 @@ export default function FeaturesPage() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-3">🎯 How to Use It</h3>
+                  <h3 className="text-lg font-semibold text-white mb-3"> How to Use It</h3>
                   <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-4 space-y-2 text-sm text-zinc-300">
                     <p>• <strong className="text-white">Spot Spikes:</strong> Sudden increases indicate refactors or complex features</p>
                     <p>• <strong className="text-white">Trend Analysis:</strong> Is complexity growing or shrinking over time?</p>
@@ -140,7 +140,7 @@ export default function FeaturesPage() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-3">🎯 How to Use It</h3>
+                  <h3 className="text-lg font-semibold text-white mb-3"> How to Use It</h3>
                   <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-4 space-y-2 text-sm text-zinc-300">
                     <p>• <strong className="text-white">Context, Not Judgment:</strong> High entropy ≠ bad developer</p>
                     <p>• <strong className="text-white">Pair Programming:</strong> High-entropy contributors benefit from pairing</p>
@@ -187,7 +187,7 @@ export default function FeaturesPage() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold text-white mb-3">🎯 How to Use It</h3>
+                  <h3 className="text-lg font-semibold text-white mb-3"> How to Use It</h3>
                   <div className="bg-zinc-950/50 border border-zinc-800 rounded-lg p-4 space-y-2 text-sm text-zinc-300">
                     <p>• <strong className="text-white">Proactive Refactoring:</strong> Address critical files before they break</p>
                     <p>• <strong className="text-white">Test Coverage:</strong> Prioritize tests for high-risk files</p>
