@@ -18,7 +18,7 @@ export default function HeroButton() {
   return (
     <button
       onClick={handleClick}
-      className="px-8 py-3 bg-zinc-100 hover:bg-zinc-300 text-black border border-zinc-200 transition font-medium rounded-md"
+      className="px-8 py-3 bg-primary hover:bg-primary-hover text-white transition font-medium rounded-md"
     >
       {isAuthenticated ? 'Go to Dashboard' : 'Get Started'}
     </button>

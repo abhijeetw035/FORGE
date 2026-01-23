@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { BarChart3, TrendingUp, Users } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, Brain } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import BackgroundEffects from '@/components/BackgroundEffects';
 import HeroButton from '@/components/HeroButton';
@@ -48,9 +48,9 @@ export default function LandingPage() {
         </section>
 
         <section className="container mx-auto px-4 py-20">
-          <div className="max-w-5xl mx-auto grid md:grid-cols-3 gap-6">
+          <div className="max-w-5xl mx-auto grid md:grid-cols-4 gap-6">
             <div className="p-6 border border-zinc-800 bg-zinc-950/40 backdrop-blur-md rounded-md hover:border-zinc-700 transition-all duration-300">
-              <BarChart3 className="w-6 h-6 text-cyan-400 mb-4" />
+              <BarChart3 className="w-6 h-6 text-primary mb-4" />
               <h3 className="text-lg font-semibold text-zinc-100 mb-2">
                 Heatmaps
               </h3>
@@ -60,7 +60,7 @@ export default function LandingPage() {
             </div>
 
             <div className="p-6 border border-zinc-800 bg-zinc-950/40 backdrop-blur-md rounded-md hover:border-zinc-700 transition-all duration-300">
-              <TrendingUp className="w-6 h-6 text-cyan-400 mb-4" />
+              <TrendingUp className="w-6 h-6 text-primary mb-4" />
               <h3 className="text-lg font-semibold text-zinc-100 mb-2">
                 Temporal Evolution
               </h3>
@@ -70,12 +70,22 @@ export default function LandingPage() {
             </div>
 
             <div className="p-6 border border-zinc-800 bg-zinc-950/40 backdrop-blur-md rounded-md hover:border-zinc-700 transition-all duration-300">
-              <Users className="w-6 h-6 text-cyan-400 mb-4" />
+              <Users className="w-6 h-6 text-primary mb-4" />
               <h3 className="text-lg font-semibold text-zinc-100 mb-2">
                 Team Metrics
               </h3>
               <p className="text-sm text-zinc-400 leading-relaxed">
                 Understand contributor impact with context-aware metrics. Identify opportunities for code reviews.
+              </p>
+            </div>
+
+            <div className="p-6 border border-zinc-800 bg-zinc-950/40 backdrop-blur-md rounded-md hover:border-zinc-700 transition-all duration-300">
+              <Brain className="w-6 h-6 text-primary mb-4" />
+              <h3 className="text-lg font-semibold text-zinc-100 mb-2">
+                AI Risk Prediction
+              </h3>
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                Machine learning forecasts which files will break. "The Oracle" predicts future maintenance issues.
               </p>
             </div>
           </div>

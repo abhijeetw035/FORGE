@@ -22,16 +22,16 @@ export default function AboutPage() {
           {/* Introduction */}
           <div className="glass-card p-8 mb-12">
             <div className="flex items-start gap-4 mb-6">
-              <Brain className="w-8 h-8 text-cyan-400 flex-shrink-0 mt-1" />
+              <Brain className="w-8 h-8 text-primary flex-shrink-0 mt-1" />
               <div>
                 <h2 className="text-2xl font-bold text-zinc-100 mb-4">The Problem</h2>
                 <p className="text-zinc-300 leading-relaxed mb-4">
-                  As codebases grow, they accumulate <span className="text-cyan-400 font-semibold">complexity</span>. 
+                  As codebases grow, they accumulate <span className="text-primary font-semibold">complexity</span>. 
                   Files get modified repeatedly, functions become nested, and understanding "what changed and why" becomes harder. 
                   Traditional metrics like lines of code or commit count don't tell the full story.
                 </p>
                 <p className="text-zinc-300 leading-relaxed">
-                  <span className="text-cyan-400 font-semibold">Code entropy</span> measures the "disorder" or "unpredictability" 
+                  <span className="text-primary font-semibold">Code entropy</span> measures the "disorder" or "unpredictability" 
                   in your codebase. High entropy indicates areas where complexity is growing faster than clarity.
                 </p>
               </div>
@@ -41,7 +41,7 @@ export default function AboutPage() {
           {/* What is Entropy */}
           <div className="mb-12">
             <h2 className="text-3xl font-bold text-zinc-100 mb-8 flex items-center gap-3">
-              <Zap className="w-8 h-8 text-cyan-400" />
+              <Zap className="w-8 h-8 text-primary" />
               Entropy Explained
             </h2>
             
@@ -102,13 +102,27 @@ export default function AboutPage() {
                   Often = tackling hard problems
                 </div>
               </div>
+
+              <div className="glass-card p-6">
+                <h3 className="text-xl font-semibold text-zinc-100 mb-3 flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-primary" />
+                  AI Risk Prediction
+                </h3>
+                <p className="text-zinc-400 text-sm leading-relaxed mb-3">
+                  Machine learning predicts which files are likely to break using Isolation Forest algorithm.
+                </p>
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded p-3 text-xs font-mono text-zinc-300">
+                  <span className="text-primary">The Oracle:</span> Future risk detection<br/>
+                  Based on churn × complexity patterns
+                </div>
+              </div>
             </div>
           </div>
 
           {/* How FORGE Solves This */}
           <div className="mb-12">
             <h2 className="text-3xl font-bold text-zinc-100 mb-8 flex items-center gap-3">
-              <Target className="w-8 h-8 text-cyan-400" />
+              <Target className="w-8 h-8 text-primary" />
               How FORGE Helps
             </h2>
 
@@ -144,35 +158,43 @@ export default function AboutPage() {
                   Plan refactors based on data, not gut feeling.
                 </p>
               </div>
+
+              <div className="bg-gradient-to-r from-blue-950/20 to-zinc-950/40 backdrop-blur-md border border-blue-800/30 border-l-4 border-l-primary rounded-lg p-6">
+                <h3 className="text-xl font-semibold text-zinc-100 mb-2">🧠 AI Risk Predictions</h3>
+                <p className="text-zinc-400">
+                  <strong>"The Oracle"</strong> uses machine learning (Isolation Forest) to predict which files will break. 
+                  Analyzes patterns in complexity, churn, and authorship to forecast future maintenance issues before they happen.
+                </p>
+              </div>
             </div>
           </div>
 
           {/* Use Cases */}
           <div className="mb-12">
             <h2 className="text-3xl font-bold text-zinc-100 mb-8 flex items-center gap-3">
-              <Lightbulb className="w-8 h-8 text-cyan-400" />
+              <Lightbulb className="w-8 h-8 text-primary" />
               Real-World Use Cases
             </h2>
 
             <div className="grid md:grid-cols-3 gap-6">
-              <div className="glass-card p-6 hover:border-cyan-700 transition-colors">
-                <Shield className="w-8 h-8 text-cyan-400 mb-4" />
+              <div className="glass-card p-6 hover:border-primary transition-colors">
+                <Shield className="w-8 h-8 text-primary mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Code Reviews</h3>
                 <p className="text-sm text-zinc-400">
                   Focus reviews on high-entropy files. Don't waste time on stable utilities—prioritize complex, changing code.
                 </p>
               </div>
 
-              <div className="glass-card p-6 hover:border-violet-700 transition-colors">
-                <TrendingUp className="w-8 h-8 text-violet-400 mb-4" />
+              <div className="glass-card p-6 hover:border-primary transition-colors">
+                <TrendingUp className="w-8 h-8 text-primary mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Refactor Planning</h3>
                 <p className="text-sm text-zinc-400">
                   Identify which modules to refactor first. Data-driven decisions instead of guesswork.
                 </p>
               </div>
 
-              <div className="glass-card p-6 hover:border-amber-700 transition-colors">
-                <Users className="w-8 h-8 text-amber-400 mb-4" />
+              <div className="glass-card p-6 hover:border-primary transition-colors">
+                <Users className="w-8 h-8 text-primary mb-4" />
                 <h3 className="text-lg font-semibold text-zinc-100 mb-2">Onboarding</h3>
                 <p className="text-sm text-zinc-400">
                   Show new developers the "safe" vs "complex" areas. Help them contribute confidently.
