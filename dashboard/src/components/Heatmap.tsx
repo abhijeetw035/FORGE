@@ -10,18 +10,14 @@ interface HeatmapProps {
 const getColorByScore = (score: number, maxScore: number) => {
   const ratio = score / maxScore;
 
-  // Cyberpunk/Data Palette: Emerald (low) -> Amber (medium) -> Rose (high)
   if (ratio > 0.7) {
-    // High Risk: Glowing Rose
-    return { fill: 'rgba(225, 29, 72, 0.5)', stroke: 'rgb(244, 63, 94)' }; // fill-rose-950/50 stroke-rose-500
+    return { fill: '#b91c1c', stroke: '#ef4444' };
   }
   if (ratio > 0.4) {
-    // Medium Risk: Glowing Amber
-    return { fill: 'rgba(245, 158, 11, 0.5)', stroke: 'rgb(245, 158, 11)' }; // fill-amber-950/50 stroke-amber-500
+    return { fill: '#0f4c75', stroke: '#3282b8' };
   }
   
-  // Low Risk: Glowing Emerald
-  return { fill: 'rgba(6, 78, 59, 0.5)', stroke: 'rgb(16, 185, 129)' }; // fill-emerald-950/50 stroke-emerald-500
+  return { fill: '#1e293b', stroke: '#334155' };
 };
 
 interface CustomContentProps {
@@ -45,7 +41,6 @@ const CustomContent = (props: CustomContentProps) => {
   
   return (
     <g>
-      {/* tile fill */}
       <rect
         x={x}
         y={y}
@@ -56,7 +51,6 @@ const CustomContent = (props: CustomContentProps) => {
         strokeWidth={1}
         rx={4}
       />
-      {/* subtle outer zinc-950 border for glass tile separation */}
       <rect
         x={x}
         y={y}
@@ -134,9 +128,9 @@ export default function Heatmap({ data }: HeatmapProps) {
           <div className="flex items-center gap-2 text-xs text-zinc-500">
             <span>Low Risk</span>
             <div className="flex gap-1">
-              <div className="w-6 h-4 rounded" style={{ background: 'rgba(6, 78, 59, 0.6)', border: '1px solid rgb(16, 185, 129)' }}></div>
-              <div className="w-6 h-4 rounded" style={{ background: 'rgba(245, 158, 11, 0.6)', border: '1px solid rgb(245, 158, 11)' }}></div>
-              <div className="w-6 h-4 rounded" style={{ background: 'rgba(225, 29, 72, 0.6)', border: '1px solid rgb(244, 63, 94)' }}></div>
+              <div className="w-6 h-4 rounded" style={{ background: '#1e293b', border: '1px solid #334155' }}></div>
+              <div className="w-6 h-4 rounded" style={{ background: '#0f4c75', border: '1px solid #3282b8' }}></div>
+              <div className="w-6 h-4 rounded" style={{ background: '#b91c1c', border: '1px solid #ef4444' }}></div>
             </div>
             <span>High Risk</span>
           </div>

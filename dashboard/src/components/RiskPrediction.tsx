@@ -20,29 +20,29 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
     switch (level) {
       case 'critical':
         return {
-          bg: 'bg-red-950/30',
-          border: 'border-red-800',
-          text: 'text-red-400',
-          progressBg: 'bg-red-950',
-          progressFill: 'bg-red-500',
+          bg: 'bg-zinc-950/50',
+          border: 'border-zinc-800',
+          text: 'text-white',
+          progressBg: 'bg-zinc-900',
+          progressFill: 'bg-red-600',
           icon: AlertTriangle
         };
       case 'warning':
         return {
-          bg: 'bg-orange-950/30',
-          border: 'border-orange-800',
-          text: 'text-orange-400',
-          progressBg: 'bg-orange-950',
+          bg: 'bg-zinc-950/50',
+          border: 'border-zinc-800',
+          text: 'text-white',
+          progressBg: 'bg-zinc-900',
           progressFill: 'bg-orange-500',
           icon: AlertCircle
         };
       default:
         return {
-          bg: 'bg-yellow-950/30',
-          border: 'border-yellow-800',
-          text: 'text-yellow-400',
-          progressBg: 'bg-yellow-950',
-          progressFill: 'bg-yellow-500',
+          bg: 'bg-zinc-950/50',
+          border: 'border-zinc-800',
+          text: 'text-zinc-400',
+          progressBg: 'bg-zinc-900',
+          progressFill: 'bg-zinc-600',
           icon: Eye
         };
     }
@@ -65,21 +65,21 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="px-3 py-1 bg-red-950/30 border border-red-800 rounded-md">
-            <span className="text-xs font-semibold text-red-400">{criticalCount} Critical</span>
+          <div className="px-3 py-1 bg-zinc-950/50 border border-zinc-800 rounded-md">
+            <span className="text-xs font-semibold text-white">{criticalCount} Critical</span>
           </div>
-          <div className="px-3 py-1 bg-orange-950/30 border border-orange-800 rounded-md">
-            <span className="text-xs font-semibold text-orange-400">{warningCount} Warning</span>
+          <div className="px-3 py-1 bg-zinc-950/50 border border-zinc-800 rounded-md">
+            <span className="text-xs font-semibold text-white">{warningCount} Warning</span>
           </div>
         </div>
       </div>
 
-      <div className="bg-cyan-950/20 border border-cyan-800 rounded-md p-4">
+      <div className="bg-zinc-950/50 border border-zinc-800 rounded-md p-4">
         <div className="flex items-start gap-3">
           <div className="text-2xl">🔮</div>
           <div>
-            <p className="font-semibold mb-1 text-cyan-300">How it works</p>
-            <p className="text-xs text-cyan-400">
+            <p className="font-semibold mb-1 text-white">How it works</p>
+            <p className="text-xs text-zinc-400">
               Using Isolation Forest algorithm to detect statistical anomalies in code complexity, 
               change frequency, and authorship patterns. Files that deviate significantly from the 
               norm are flagged as high-risk.
@@ -103,19 +103,19 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <Icon className={`w-5 h-5 ${colors.text} flex-shrink-0 mt-0.5`} />
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-zinc-100 truncate" title={file.file_path}>
+                    <p className="font-medium text-white truncate" title={file.file_path}>
                       {fileName}
                     </p>
-                    <p className="text-xs text-zinc-500 truncate mt-0.5">
+                    <p className="text-xs text-zinc-400 truncate mt-0.5">
                       {file.file_path}
                     </p>
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className={`text-2xl font-bold ${colors.text}`}>
+                  <p className={`text-2xl font-bold text-white`}>
                     {Math.round(file.risk_score)}%
                   </p>
-                  <p className="text-xs text-zinc-500 uppercase tracking-wider">
+                  <p className="text-xs text-zinc-400 uppercase tracking-wider">
                     {file.risk_level}
                   </p>
                 </div>
@@ -136,7 +136,7 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
                   <span>Complexity: {file.complexity}</span>
                   <span>Authors: {file.author_count}</span>
                 </div>
-                <span className={`font-medium ${colors.text}`}>
+                <span className={`font-medium text-zinc-400`}>
                   {file.reason}
                 </span>
               </div>
@@ -154,13 +154,13 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
       )}
 
       <div className="glass-card p-4">
-        <h4 className="text-sm font-semibold text-zinc-300 mb-2">
+        <h4 className="text-sm font-semibold text-white mb-2">
           💡 Interpretation Guide
         </h4>
         <div className="space-y-1 text-xs text-zinc-400">
-          <p><strong className="text-red-400">Critical (80-100%):</strong> Immediate attention required. High chance of bugs or maintenance issues.</p>
-          <p><strong className="text-orange-400">Warning (50-79%):</strong> Monitor closely. Consider refactoring or additional testing.</p>
-          <p><strong className="text-yellow-400">Watchlist (&lt;50%):</strong> Keep an eye on these. May become problematic over time.</p>
+          <p><strong className="text-white">Critical (80-100%):</strong> Immediate attention required. High chance of bugs or maintenance issues.</p>
+          <p><strong className="text-white">Warning (50-79%):</strong> Monitor closely. Consider refactoring or additional testing.</p>
+          <p><strong className="text-white">Watchlist (&lt;50%):</strong> Keep an eye on these. May become problematic over time.</p>
         </div>
       </div>
     </div>

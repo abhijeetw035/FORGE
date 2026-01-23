@@ -114,7 +114,7 @@ export default function RepositoryPage({ params }: PageProps) {
   return (
     <div className="min-h-screen">
       <StatusPoller repositories={[repository]} />
-      <div className="container mx-auto px-4 py-12">
+      <div className="container mx-auto px-4 py-12 max-w-7xl">
         <header className="mb-8 pb-6 border-b border-zinc-800 animate-in fade-in slide-in-from-top-4 duration-700">
           <nav className="text-sm text-zinc-400 mb-4">
             <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-100">
@@ -147,59 +147,27 @@ export default function RepositoryPage({ params }: PageProps) {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
-              <Heatmap data={heatmapData} />
-            </div>
-          </div>
-
-          <aside className="lg:col-span-1">
-            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
-              <div className="flex flex-col gap-4">
-                <div>
-                  <p className="text-sm text-zinc-300">Repository</p>
-                  <p className="text-lg font-semibold text-zinc-100 mt-1">{repository.owner}/{repository.name}</p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-zinc-300">Created</p>
-                  <p className="text-sm text-zinc-400 mt-1">{new Date(repository.created_at).toLocaleString()}</p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-zinc-300">Contributors</p>
-                  <p className="text-sm text-zinc-400 mt-1">{contributorsData.length}</p>
-                </div>
-
-                <div>
-                  <p className="text-sm text-zinc-300">Commits (visible)</p>
-                  <p className="text-sm text-zinc-400 mt-1">{timelineData.length}</p>
-                </div>
-
-                <div>
-                  <Link href="/dashboard" className="inline-block mt-2 text-sm text-zinc-300 hover:text-zinc-100">
-                    View all repositories →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <div className="lg:col-span-3">
-            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
-              <Timeline data={timelineData} />
-            </div>
-          </div>
-
-          <div className="lg:col-span-3">
-            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
+        <div className="grid grid-cols-12 gap-6">
+          <div className="col-span-12 md:col-span-4">
+            <div className="glass-card p-6">
               <RiskPrediction data={riskData} />
             </div>
           </div>
 
-          <div className="lg:col-span-3">
-            <div className="bg-zinc-950/40 backdrop-blur-md border border-zinc-800/50 shadow-2xl rounded-lg p-6 hover:shadow-zinc-900/50 hover:border-zinc-700/80 transition-all duration-300">
+          <div className="col-span-12 md:col-span-8">
+            <div className="glass-card p-6">
+              <Heatmap data={heatmapData} />
+            </div>
+          </div>
+
+          <div className="col-span-12">
+            <div className="glass-card p-6">
+              <Timeline data={timelineData} />
+            </div>
+          </div>
+
+          <div className="col-span-12">
+            <div className="glass-card p-6">
               <Contributors data={contributorsData} />
             </div>
           </div>
