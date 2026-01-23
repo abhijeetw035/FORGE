@@ -1,6 +1,7 @@
 'use client';
 
-import { Brain, AlertTriangle, AlertCircle, Eye } from 'lucide-react';
+import { useState } from 'react';
+import { Brain, AlertTriangle, AlertCircle, Eye, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { RiskPredictionData } from '@/lib/api';
 
 interface RiskPredictionProps {
@@ -8,6 +9,9 @@ interface RiskPredictionProps {
 }
 
 export default function RiskPrediction({ data }: RiskPredictionProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
   if (!data || data.length === 0) {
     return (
       <div className="text-center py-20 text-zinc-500">
@@ -48,9 +52,25 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
     }
   };
 
-  const topRisks = data.slice(0, 5);
   const criticalCount = data.filter(d => d.risk_level === 'critical').length;
   const warningCount = data.filter(d => d.risk_level === 'warning').length;
+
+  const totalPages = Math.ceil(data.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentRisks = data.slice(startIndex, endIndex);
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const goToPreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
 
   return (
     <div className="w-full space-y-6">
@@ -89,7 +109,7 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
       </div>
 
       <div className="space-y-3">
-        {topRisks.map((file, index) => {
+        {currentRisks.map((file, index) => {
           const colors = getRiskColor(file.risk_level);
           const Icon = colors.icon;
           const fileName = file.file_path.split('/').pop() || file.file_path;
@@ -145,11 +165,61 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
         })}
       </div>
 
-      {data.length > 5 && (
-        <div className="text-center pt-2">
-          <p className="text-sm text-zinc-500">
-            Showing top 5 of {data.length} analyzed files
-          </p>
+      {data.length > itemsPerPage && (
+        <div className="flex items-center justify-between pt-4 border-t border-zinc-800">
+          <div className="text-sm text-zinc-400">
+            Showing {startIndex + 1}-{Math.min(endIndex, data.length)} of {data.length} files
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goToPreviousPage}
+              disabled={currentPage === 1}
+              className={`
+                flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium transition-all
+                ${currentPage === 1 
+                  ? 'bg-zinc-900/50 text-zinc-600 cursor-not-allowed' 
+                  : 'bg-zinc-950/50 border border-zinc-800 text-white hover:bg-zinc-900 hover:border-zinc-700'
+                }
+              `}
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </button>
+
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`
+                    w-10 h-10 rounded-md text-sm font-medium transition-all
+                    ${currentPage === page
+                      ? 'bg-blue-500 text-white'
+                      : 'bg-zinc-950/50 border border-zinc-800 text-zinc-400 hover:bg-zinc-900 hover:border-zinc-700 hover:text-white'
+                    }
+                  `}
+                >
+                  {page}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={goToNextPage}
+              disabled={currentPage === totalPages}
+              className={`
+                flex items-center gap-1 px-3 py-2 rounded-md text-sm font-medium transition-all
+                ${currentPage === totalPages
+                  ? 'bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
+                  : 'bg-zinc-950/50 border border-zinc-800 text-white hover:bg-zinc-900 hover:border-zinc-700'
+                }
+              `}
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

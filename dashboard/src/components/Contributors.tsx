@@ -232,11 +232,11 @@ export default function Contributors({ data }: ContributorsProps) {
       </div>
 
       {/* Interpretation Guide */}
-      <div className="bg-yellow-950/30 border border-yellow-800 rounded-md p-4">
-        <h4 className="text-sm font-semibold text-yellow-300 mb-2">
+      <div className="bg-zinc-950/50 border border-zinc-800 rounded-md p-4">
+        <h4 className="text-sm font-semibold text-white mb-2">
           📊 How to Read These Metrics
         </h4>
-        <div className="space-y-2 text-xs text-yellow-400">
+        <div className="space-y-2 text-xs text-white">
           <p><strong>Entropy Score:</strong> Avg Complexity × Functions Added - indicates overall complexity contribution</p>
           <p><strong>High entropy isn't bad:</strong> Could mean working on algorithms, parsers, or refactoring legacy systems</p>
           <p><strong>Low entropy isn't bad:</strong> Could mean working on APIs, configs, or simple utilities</p>
