@@ -48,3 +48,8 @@ miner/tree_sitter_builds/*.so
 *.sqlite
 
 plan.md
+storage/
+
+# Storage - cloned repos should never be committed
+storage/*
+!storage/.gitkeep
