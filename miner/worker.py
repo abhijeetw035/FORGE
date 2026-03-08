@@ -118,7 +118,11 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session):
                                     end_line=func_data['end_line'],
                                     complexity=func_data['complexity'],
                                     lines_of_code=func_data['lines_of_code'],
-                                    parameters=func_data['parameters']
+                                    parameters=func_data['parameters'],
+                                    # stable cross-commit identity hashes
+                                    body_hash=func_data.get('body_hash'),
+                                    signature_hash=func_data.get('signature_hash'),
+                                    canonical_id=func_data.get('canonical_id'),
                                 )
                                 db.add(function)
                     except Exception as e:

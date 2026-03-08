@@ -186,3 +186,108 @@ class GitService:
         else:
             return 0
         return len(re.findall(pattern, source, re.MULTILINE))
+
+    # Cross-commit function evolution (identity-aware, no line numbers)
+    def get_function_evolution(
+        self,
+        repo_path: str,
+        db_functions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Build a timeline of each unique function's life across commits using
+        its ``canonical_id`` — NOT line-number ranges.
+
+        This correctly handles:
+        - Function moved to a different line / different file (same canonical_id)
+        - Pure reformat / indentation change (same body_hash → same canonical_id)
+        - Rename          → different signature_hash → treated as new function  ✓
+        - Parameter change → different signature_hash → treated as new function ✓
+        - Body rewrite    → different body_hash  → treated as new version       ✓
+
+        Args:
+            repo_path    : path to the cloned git repo (used to get commit order)
+            db_functions : list of dicts from the database, each with keys:
+                           canonical_id, signature_hash, body_hash,
+                           name, file_path, start_line, end_line,
+                           complexity, commit_sha, commit_timestamp
+
+        Returns:
+            List of function-evolution dicts, one per unique canonical_id:
+            {
+                canonical_id      : str,
+                name              : str,          # most recent name
+                file_path         : str,          # most recent file path
+                first_seen_sha    : str,
+                last_seen_sha     : str,
+                first_seen_ts     : datetime,
+                last_seen_ts      : datetime,
+                commit_count      : int,          # how many commits touched it
+                was_moved         : bool,         # file_path changed between commits
+                was_renamed       : bool,         # signature_hash changed (name/params)
+                complexity_trend  : str,          # 'increasing' | 'decreasing' | 'stable'
+                complexity_delta  : int,          # last - first complexity
+                versions          : list[dict],   # full chronological history
+            }
+        """
+        if not db_functions:
+            return []
+
+        # Group all Function rows by canonical_id
+        by_cid: Dict[str, List[Dict]] = defaultdict(list)
+        for fn in db_functions:
+            cid = fn.get('canonical_id')
+            if cid:
+                by_cid[cid].append(fn)
+
+        results = []
+        for cid, versions in by_cid.items():
+            # Sort chronologically
+            versions_sorted = sorted(
+                versions,
+                key=lambda f: f.get('commit_timestamp') or datetime.min
+            )
+
+            first = versions_sorted[0]
+            last  = versions_sorted[-1]
+
+            # Detect moves: file_path changed across any two consecutive versions
+            paths = [v['file_path'] for v in versions_sorted]
+            was_moved = len(set(paths)) > 1
+
+            # Detect renames: signature_hash changed (name or params changed)
+            sigs = [v.get('signature_hash') for v in versions_sorted if v.get('signature_hash')]
+            was_renamed = len(set(sigs)) > 1
+
+            # Complexity trend
+            complexities = [v.get('complexity') or 0 for v in versions_sorted]
+            if len(complexities) >= 2:
+                delta = complexities[-1] - complexities[0]
+                if delta > 0:
+                    trend = 'increasing'
+                elif delta < 0:
+                    trend = 'decreasing'
+                else:
+                    trend = 'stable'
+            else:
+                delta = 0
+                trend = 'stable'
+
+            results.append({
+                'canonical_id':     cid,
+                'name':             last.get('name', ''),
+                'file_path':        last.get('file_path', ''),
+                'first_seen_sha':   first.get('commit_sha', ''),
+                'last_seen_sha':    last.get('commit_sha', ''),
+                'first_seen_ts':    first.get('commit_timestamp'),
+                'last_seen_ts':     last.get('commit_timestamp'),
+                'commit_count':     len(versions_sorted),
+                'was_moved':        was_moved,
+                'was_renamed':      was_renamed,
+                'complexity_trend': trend,
+                'complexity_delta': delta,
+                'versions':         versions_sorted,
+            })
+
+        # Sort by commit_count descending (most-touched functions first)
+        results.sort(key=lambda r: r['commit_count'], reverse=True)
+        return results

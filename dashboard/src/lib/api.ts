@@ -27,12 +27,24 @@ export interface ContributorData {
 
 export interface RiskPredictionData {
   file_path: string;
-  churn: number;
-  complexity: number;
-  author_count: number;
+  // core
   risk_score: number;
   risk_level: 'critical' | 'warning' | 'watchlist';
   reason: string;
+  // commit-history features
+  churn: number;
+  lines_added: number;
+  lines_deleted: number;
+  file_age_days: number;
+  commit_frequency: number;
+  recent_churn: number;
+  // authorship features
+  author_count: number;
+  ownership_entropy: number;
+  // coupling feature
+  dependency_count: number;
+  // AST feature
+  complexity: number;
 }
 
 export interface User {
@@ -247,3 +259,45 @@ export async function getRepositoryRiskPrediction(id: string): Promise<RiskPredi
   
   return response.json();
 }
+
+export interface FunctionVersionData {
+  commit_sha: string;
+  commit_author: string;
+  commit_message: string;
+  timestamp: string | null;
+  file_path: string;
+  name: string;
+  complexity: number;
+  start_line: number;
+  end_line: number;
+}
+
+export interface FunctionEvolutionData {
+  canonical_id: string;
+  name: string;
+  file_path: string;
+  first_seen_sha: string;
+  last_seen_sha: string;
+  first_seen_ts: string | null;
+  last_seen_ts: string | null;
+  commit_count: number;
+  was_moved: boolean;
+  was_renamed: boolean;
+  complexity_trend: 'increasing' | 'decreasing' | 'stable';
+  complexity_delta: number;
+  versions: FunctionVersionData[];
+}
+
+export async function getRepositoryFunctionEvolution(id: string): Promise<FunctionEvolutionData[]> {
+  const response = await fetch(`${API_URL}/analytics/repositories/${id}/function-evolution`, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch function evolution data');
+  }
+
+  return response.json();
+}
+

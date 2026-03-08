@@ -1,5 +1,8 @@
 from tree_sitter import Language, Parser
 import os
+import hashlib
+import re
+
 
 class ASTParser:
     def __init__(self):
@@ -149,7 +152,13 @@ class ASTParser:
             'end_line': end_line,
             'parameters': params,
             'complexity': self._calculate_complexity(node),
-            'lines_of_code': end_line - start_line + 1
+            'lines_of_code': end_line - start_line + 1,
+            # ── stable identity fields ────────────────────────────────
+            # Used to track this function across commits even when it is
+            # moved, reformatted, or has its line numbers changed.
+            'body_hash':      self._body_hash(node, source_code),
+            'signature_hash': self._signature_hash(func_name, params, language),
+            'canonical_id':   self._canonical_id(func_name, params, language, node, source_code),
         }
     
     def _calculate_complexity(self, node):
@@ -166,3 +175,72 @@ class ASTParser:
         
         count_branches(node)
         return complexity
+
+    # ── stable identity helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _normalise_body(source: str) -> str:
+        """
+        Strip whitespace/indentation differences so that a pure reformat or
+        move does not produce a different hash.
+
+        Steps:
+        1. Remove comment lines (# …  or // …)
+        2. Collapse all runs of whitespace (spaces, tabs, newlines) → single space
+        3. Strip leading/trailing space
+        """
+        # remove single-line comments (Python/JS/Java/Go style)
+        source = re.sub(r'#[^\n]*', '', source)
+        source = re.sub(r'//[^\n]*', '', source)
+        # collapse whitespace
+        source = re.sub(r'\s+', ' ', source).strip()
+        return source
+
+    def _body_hash(self, node, source_code: str) -> str:
+        """
+        SHA-256 of the *normalised* function body text.
+
+        Two functions with the same logic but different indentation, blank
+        lines, or file position will have the SAME body_hash.  A rename or
+        parameter change will NOT change it (body content is compared, not
+        signature).
+        """
+        raw_body = source_code[node.start_byte:node.end_byte]
+        normalised = self._normalise_body(raw_body)
+        return hashlib.sha256(normalised.encode('utf-8')).hexdigest()[:16]
+
+    @staticmethod
+    def _signature_hash(name: str, params: list, language: str) -> str:
+        """
+        SHA-256 of  "<language>:<name>(<param1>,<param2>,…)".
+
+        Stable across: moves, reformats, body-only changes.
+        Changes on: rename OR parameter list change.
+        """
+        sig = f"{language}:{name}({','.join(params)})"
+        return hashlib.sha256(sig.encode('utf-8')).hexdigest()[:16]
+
+    def _canonical_id(self, name: str, params: list, language: str,
+                      node, source_code: str) -> str:
+        """
+        The primary cross-commit identity key.
+
+        Strategy (in priority order):
+        1. If the function body is *unchanged* → same body_hash  → same identity.
+        2. If name + parameters are unchanged → same signature_hash → same identity.
+
+        We combine both into one 16-char hex fingerprint:
+            SHA-256( signature_hash + ":" + body_hash )
+
+        This means:
+        - Pure move / reformat          → same canonical_id  ✓
+        - Rename only                   → different          ✓
+        - Param change only             → different          ✓
+        - Body change only              → different          ✓  (intentional —
+                                          a rewrite IS a new version)
+        - Rename + same body            → different          ✓
+        """
+        bh = self._body_hash(node, source_code)
+        sh = self._signature_hash(name, params, language)
+        combined = f"{sh}:{bh}"
+        return hashlib.sha256(combined.encode('utf-8')).hexdigest()[:16]

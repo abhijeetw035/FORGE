@@ -59,7 +59,12 @@ class Function(Base):
     return_type = Column(String)
     ast_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+    # stable identity hashes — see miner/services/ast_parser.py for details
+    body_hash      = Column(String(16), nullable=True, index=True)
+    signature_hash = Column(String(16), nullable=True, index=True)
+    canonical_id   = Column(String(16), nullable=True, index=True)
+
     commit = relationship("Commit", back_populates="functions")
 
 

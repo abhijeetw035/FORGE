@@ -5,6 +5,8 @@ from database import get_db
 from models import Function, Commit, Repository, User, FileMetrics
 from dependencies import get_current_user
 from services.predictor import RiskPredictor
+from collections import defaultdict
+from datetime import datetime
 
 router = APIRouter(prefix='/analytics', tags=['analytics'])
 
@@ -245,5 +247,166 @@ async def get_risk_prediction(
         # Return top 20 at-risk files
         return predictions[:20]
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/repositories/{repo_id}/function-evolution")
+async def get_function_evolution(
+    repo_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Return per-function evolution timelines for a repository.
+
+    Each entry represents one unique function (identified by canonical_id) and
+    includes:
+    - Whether it was ever moved to a different file
+    - Whether it was ever renamed / had its signature changed
+    - Complexity trend across commits
+    - Full chronological version history
+    """
+    try:
+        repo = db.query(Repository).filter(
+            Repository.id == repo_id,
+            Repository.owner_id == current_user.id
+        ).first()
+        if not repo:
+            raise HTTPException(status_code=404, detail="Repository not found")
+
+        # Only pull functions that have a canonical_id (hashed by the new miner)
+        rows = (
+            db.query(
+                Function.canonical_id,
+                Function.signature_hash,
+                Function.body_hash,
+                Function.name,
+                Function.file_path,
+                Function.start_line,
+                Function.end_line,
+                Function.complexity,
+                Commit.sha.label('commit_sha'),
+                Commit.timestamp.label('commit_timestamp'),
+                Commit.author.label('commit_author'),
+                Commit.message.label('commit_message'),
+            )
+            .join(Commit, Function.commit_id == Commit.id)
+            .filter(
+                Commit.repository_id == repo_id,
+                Function.canonical_id.isnot(None),
+            )
+            .order_by(Commit.timestamp.asc())
+            .all()
+        )
+
+        if not rows:
+            return []
+
+        db_functions = [
+            {
+                'canonical_id':     r.canonical_id,
+                'signature_hash':   r.signature_hash,
+                'body_hash':        r.body_hash,
+                'name':             r.name,
+                'file_path':        r.file_path,
+                'start_line':       r.start_line,
+                'end_line':         r.end_line,
+                'complexity':       r.complexity or 0,
+                'commit_sha':       r.commit_sha,
+                'commit_timestamp': r.commit_timestamp,
+                'commit_author':    r.commit_author,
+                'commit_message':   r.commit_message,
+            }
+            for r in rows
+        ]
+
+        # ── inline get_function_evolution logic (no git I/O needed) ──────
+        by_cid: dict = defaultdict(list)
+        for fn in db_functions:
+            cid = fn.get('canonical_id')
+            if cid:
+                by_cid[cid].append(fn)
+
+        evolution = []
+        for cid, versions in by_cid.items():
+            versions_sorted = sorted(
+                versions,
+                key=lambda f: f.get('commit_timestamp') or datetime.min
+            )
+            first = versions_sorted[0]
+            last  = versions_sorted[-1]
+
+            paths = [v['file_path'] for v in versions_sorted]
+            was_moved = len(set(paths)) > 1
+
+            sigs = [v.get('signature_hash') for v in versions_sorted if v.get('signature_hash')]
+            was_renamed = len(set(sigs)) > 1
+
+            complexities = [v.get('complexity') or 0 for v in versions_sorted]
+            if len(complexities) >= 2:
+                delta = complexities[-1] - complexities[0]
+                trend = 'increasing' if delta > 0 else ('decreasing' if delta < 0 else 'stable')
+            else:
+                delta, trend = 0, 'stable'
+
+            evolution.append({
+                'canonical_id':     cid,
+                'name':             last.get('name', ''),
+                'file_path':        last.get('file_path', ''),
+                'first_seen_sha':   first.get('commit_sha', ''),
+                'last_seen_sha':    last.get('commit_sha', ''),
+                'first_seen_ts':    first.get('commit_timestamp'),
+                'last_seen_ts':     last.get('commit_timestamp'),
+                'commit_count':     len(versions_sorted),
+                'was_moved':        was_moved,
+                'was_renamed':      was_renamed,
+                'complexity_trend': trend,
+                'complexity_delta': delta,
+                'versions':         versions_sorted,
+            })
+
+        evolution.sort(key=lambda r: r['commit_count'], reverse=True)
+
+        # Serialise — datetime objects aren't JSON-serialisable by default
+        def _serialise(entry: dict) -> dict:
+            versions_out = []
+            for v in entry.get('versions', []):
+                ts = v.get('commit_timestamp')
+                versions_out.append({
+                    'commit_sha':     v.get('commit_sha', '')[:7],
+                    'commit_author':  v.get('commit_author', ''),
+                    'commit_message': (v.get('commit_message') or '')[:120],
+                    'timestamp':      ts.isoformat() if ts else None,
+                    'file_path':      v.get('file_path', ''),
+                    'name':           v.get('name', ''),
+                    'complexity':     v.get('complexity', 0),
+                    'start_line':     v.get('start_line', 0),
+                    'end_line':       v.get('end_line', 0),
+                })
+
+            first_ts = entry.get('first_seen_ts')
+            last_ts  = entry.get('last_seen_ts')
+            return {
+                'canonical_id':     entry['canonical_id'],
+                'name':             entry['name'],
+                'file_path':        entry['file_path'],
+                'first_seen_sha':   (entry.get('first_seen_sha') or '')[:7],
+                'last_seen_sha':    (entry.get('last_seen_sha') or '')[:7],
+                'first_seen_ts':    first_ts.isoformat() if first_ts else None,
+                'last_seen_ts':     last_ts.isoformat()  if last_ts  else None,
+                'commit_count':     entry['commit_count'],
+                'was_moved':        entry['was_moved'],
+                'was_renamed':      entry['was_renamed'],
+                'complexity_trend': entry['complexity_trend'],
+                'complexity_delta': entry['complexity_delta'],
+                'versions':         versions_out,
+            }
+
+        return [_serialise(e) for e in evolution[:limit]]
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

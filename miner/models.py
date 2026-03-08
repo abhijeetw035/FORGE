@@ -47,7 +47,19 @@ class Function(Base):
     return_type = Column(String)
     ast_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
+    # ── stable identity hashes (added for cross-commit function tracking) ──
+    # body_hash      : SHA-256[:16] of normalised function body — same after
+    #                  moves, reformats, or indentation-only changes.
+    # signature_hash : SHA-256[:16] of "<lang>:<name>(<params>)" — stable
+    #                  across body changes; changes on rename/param edit.
+    # canonical_id   : SHA-256[:16] of (signature_hash + body_hash) — the
+    #                  primary cross-commit identity key used to track a
+    #                  function without relying on line numbers.
+    body_hash      = Column(String(16), nullable=True, index=True)
+    signature_hash = Column(String(16), nullable=True, index=True)
+    canonical_id   = Column(String(16), nullable=True, index=True)
+
     commit = relationship("Commit", back_populates="functions")
 
 

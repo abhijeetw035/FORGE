@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft } from 'lucide-react';
+import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft, GitBranch } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -39,6 +39,11 @@ export default function RepositoryLayout({ children, params }: LayoutProps) {
       name: 'Risk Forecast',
       href: `/repositories/${id}/risk`,
       icon: BrainCircuit
+    },
+    {
+      name: 'Functions',
+      href: `/repositories/${id}/functions`,
+      icon: GitBranch
     },
     {
       name: 'Team Stats',
