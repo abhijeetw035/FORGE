@@ -5,13 +5,34 @@ import redis
 import json
 
 from database import get_db
-from models import Repository, User
+from models import Repository, User, Commit, Function, FileMetrics
 from schemas import RepositoryCreate, RepositoryResponse, RepositoryDetail
 from dependencies import get_current_user
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
 
 redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
+
+# ── Redis Stream constants ────────────────────────────────────────────────────
+STREAM_NAME    = 'forge:tasks'
+CONSUMER_GROUP = 'miner-workers'
+
+def _publish_task(task: dict) -> None:
+    """
+    Publish a task to the Redis Stream.
+
+    Redis Streams give at-least-once delivery: the message stays in the stream
+    until a consumer explicitly ACKs it.  If the worker crashes after reading
+    but before ACKing, the message is reclaimed on the next XAUTOCLAIM call.
+
+    Falls back to the legacy RPUSH list so existing workers keep working during
+    a rolling deploy.
+    """
+    try:
+        redis_client.xadd(STREAM_NAME, {'payload': json.dumps(task)})
+    except Exception:
+        # Fallback to legacy list (e.g. Redis < 5.0)
+        redis_client.rpush('task_queue', json.dumps(task))
 
 @router.post("/", response_model=RepositoryResponse)
 async def create_repository(
@@ -99,11 +120,11 @@ async def reanalyze_repository(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Re-queue a repository for full re-analysis.
+    Wipe all derived data (Function rows, Commit rows, FileMetrics) for this
+    repository and re-queue a full fresh analysis.
 
-    Clears last_indexed_sha so the miner performs a complete fresh walk,
-    which is needed when new features (e.g. function-identity hashes,
-    file metrics) were added after the initial analysis was run.
+    This is needed when new miner features (function-identity hashes, richer
+    file metrics) were introduced after the original analysis was run.
     """
     repo = db.query(Repository).filter(
         Repository.id == repo_id,
@@ -115,7 +136,15 @@ async def reanalyze_repository(
     if repo.status in ("cloning", "analyzing"):
         raise HTTPException(status_code=409, detail="Repository is already being analysed")
 
-    # Clear checkpoint so the miner does a full walk, not just the delta
+    # Delete Function rows via their Commit FK
+    commit_ids = [c.id for c in db.query(Commit.id).filter(Commit.repository_id == repo_id)]
+    if commit_ids:
+        db.query(Function).filter(Function.commit_id.in_(commit_ids)).delete(synchronize_session=False)
+
+    db.query(Commit).filter(Commit.repository_id == repo_id).delete(synchronize_session=False)
+    db.query(FileMetrics).filter(FileMetrics.repository_id == repo_id).delete(synchronize_session=False)
+
+    # Clear the incremental checkpoint so worker does a full walk
     repo.last_indexed_sha = None
     repo.status = "queued"
     db.commit()
