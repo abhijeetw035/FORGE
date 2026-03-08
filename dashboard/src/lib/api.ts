@@ -247,6 +247,19 @@ export async function deleteRepository(id: number): Promise<void> {
   }
 }
 
+export async function reanalyzeRepository(id: number): Promise<void> {
+  const response = await fetch(`${API_URL}/repositories/${id}/reanalyze`, {
+    method: 'POST',
+    headers: getHeaders(),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to queue re-analysis' }));
+    throw new Error(error.detail || 'Failed to queue re-analysis');
+  }
+}
+
 export async function getRepositoryRiskPrediction(id: string): Promise<RiskPredictionData[]> {
   const response = await fetch(`${API_URL}/analytics/repositories/${id}/risk-prediction`, {
     headers: getHeaders(),

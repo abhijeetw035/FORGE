@@ -90,3 +90,41 @@ async def delete_repository(
     db.delete(repo)
     db.commit()
     return {"message": "Repository deleted"}
+
+
+@router.post("/{repo_id}/reanalyze")
+async def reanalyze_repository(
+    repo_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Re-queue a repository for full re-analysis.
+
+    Clears last_indexed_sha so the miner performs a complete fresh walk,
+    which is needed when new features (e.g. function-identity hashes,
+    file metrics) were added after the initial analysis was run.
+    """
+    repo = db.query(Repository).filter(
+        Repository.id == repo_id,
+        Repository.owner_id == current_user.id
+    ).first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if repo.status in ("cloning", "analyzing"):
+        raise HTTPException(status_code=409, detail="Repository is already being analysed")
+
+    # Clear checkpoint so the miner does a full walk, not just the delta
+    repo.last_indexed_sha = None
+    repo.status = "queued"
+    db.commit()
+
+    task = {
+        "type": "clone_and_analyze",
+        "repository_id": repo.id,
+        "url": repo.url,
+    }
+    redis_client.rpush('task_queue', json.dumps(task))
+
+    return {"message": "Re-analysis queued", "repository_id": repo_id}

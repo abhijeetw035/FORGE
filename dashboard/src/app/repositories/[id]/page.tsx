@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { GitBranch, GitCommit, Activity, AlertTriangle } from 'lucide-react';
-import { getRepository, getRepositoryTimeline, getRepositoryRiskPrediction } from '@/lib/api';
+import { GitBranch, GitCommit, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
+import { getRepository, getRepositoryTimeline, getRepositoryRiskPrediction, reanalyzeRepository } from '@/lib/api';
 import StatusPoller from '@/components/StatusPoller';
 import { Repository } from '@/types';
 import type { TimelineData, RiskPredictionData } from '@/lib/api';
@@ -21,6 +21,8 @@ export default function RepositoryPage({ params }: PageProps) {
   const [riskData, setRiskData] = useState<RiskPredictionData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [reanalyzing, setReanalyzing] = useState(false);
+  const [reanalyzeMsg, setReanalyzeMsg] = useState<string>('');
   const router = useRouter();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
 
@@ -101,6 +103,22 @@ export default function RepositoryPage({ params }: PageProps) {
     }
   };
 
+  const handleReanalyze = async () => {
+    if (!repository) return;
+    setReanalyzing(true);
+    setReanalyzeMsg('');
+    try {
+      await reanalyzeRepository(repository.id);
+      setReanalyzeMsg('Re-analysis queued! Status will update shortly.');
+      // Optimistically update status badge
+      setRepository(r => r ? { ...r, status: 'queued' } : r);
+    } catch (err) {
+      setReanalyzeMsg(err instanceof Error ? err.message : 'Failed to queue re-analysis');
+    } finally {
+      setReanalyzing(false);
+    }
+  };
+
   return (
     <>
       <StatusPoller repositories={[repository]} />
@@ -134,8 +152,24 @@ export default function RepositoryPage({ params }: PageProps) {
               )}`}>
                 {repository.status.toUpperCase()}
               </span>
+
+              <button
+                onClick={handleReanalyze}
+                disabled={reanalyzing || repository.status === 'analyzing' || repository.status === 'queued'}
+                title="Re-run full analysis to pick up new features (function evolution, file metrics)"
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-sm hover:border-blue-500 hover:text-blue-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className={`w-4 h-4 ${reanalyzing ? 'animate-spin' : ''}`} />
+                {reanalyzing ? 'Queuing…' : 'Re-analyse'}
+              </button>
             </div>
           </div>
+
+          {reanalyzeMsg && (
+            <p className={`mt-3 text-sm ${reanalyzeMsg.startsWith('Re-analysis') ? 'text-green-400' : 'text-red-400'}`}>
+              {reanalyzeMsg}
+            </p>
+          )}
         </header>
 
         <div className="mb-6">
