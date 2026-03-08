@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -49,3 +49,33 @@ class Function(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     
     commit = relationship("Commit", back_populates="functions")
+
+
+class FileMetrics(Base):
+    """
+    Aggregated per-file metrics computed across the full commit history.
+    Stored once per (repository, file_path) and refreshed on re-analysis.
+    """
+    __tablename__ = "file_metrics"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    repository_id      = Column(Integer, ForeignKey("repositories.id"), nullable=False, index=True)
+    file_path          = Column(String, nullable=False, index=True)
+
+    # --- commit-history features ---
+    churn              = Column(Integer, default=0)       # total commits touching the file
+    lines_added        = Column(Integer, default=0)       # cumulative insertions
+    lines_deleted      = Column(Integer, default=0)       # cumulative deletions
+    file_age_days      = Column(Float,   default=0.0)     # days between first & last commit
+    commit_frequency   = Column(Float,   default=0.0)     # commits per day
+    recent_churn       = Column(Integer, default=0)       # commits in last 90 days
+    author_count       = Column(Integer, default=1)       # distinct authors
+    ownership_entropy  = Column(Float,   default=0.0)     # Shannon entropy of authorship fractions
+    dependency_count   = Column(Integer, default=0)       # import/require statements at HEAD
+
+    # --- AST-derived (populated from Function records) ---
+    avg_complexity     = Column(Float,   default=0.0)
+
+    updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    repository = relationship("Repository")

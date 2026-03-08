@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from database import get_db
-from models import Function, Commit, Repository, User
+from models import Function, Commit, Repository, User, FileMetrics
 from dependencies import get_current_user
 from services.predictor import RiskPredictor
 
@@ -177,41 +177,73 @@ async def get_risk_prediction(
         ).first()
         if not repo:
             raise HTTPException(status_code=404, detail="Repository not found")
-        
-        # Query file statistics: path, churn, complexity, author count
-        file_stats = (
-            db.query(
-                Function.file_path,
-                func.count(Function.id).label('churn'),
-                func.avg(Function.complexity).label('complexity'),
-                func.count(func.distinct(Commit.author)).label('author_count')
-            )
-            .join(Commit, Function.commit_id == Commit.id)
-            .filter(Commit.repository_id == repo_id)
-            .group_by(Function.file_path)
+
+        # Query FileMetrics rows (populated by the miner).
+        fm_rows = (
+            db.query(FileMetrics)
+            .filter(FileMetrics.repository_id == repo_id)
             .all()
         )
-        
-        if not file_stats:
+
+        if fm_rows:
+            data = [
+                {
+                    'file_path':         row.file_path,
+                    'churn':             row.churn             or 0,
+                    'lines_added':       row.lines_added       or 0,
+                    'lines_deleted':     row.lines_deleted     or 0,
+                    'file_age_days':     row.file_age_days     or 0.0,
+                    'commit_frequency':  row.commit_frequency  or 0.0,
+                    'recent_churn':      row.recent_churn      or 0,
+                    'author_count':      row.author_count      or 1,
+                    'ownership_entropy': row.ownership_entropy or 0.0,
+                    'dependency_count':  row.dependency_count  or 0,
+                    'complexity':        row.avg_complexity    or 0.0,
+                }
+                for row in fm_rows
+            ]
+        else:
+            # Legacy fallback: derive minimal features from Function/Commit tables
+            file_stats = (
+                db.query(
+                    Function.file_path,
+                    func.count(Function.id).label('churn'),
+                    func.avg(Function.complexity).label('complexity'),
+                    func.count(func.distinct(Commit.author)).label('author_count')
+                )
+                .join(Commit, Function.commit_id == Commit.id)
+                .filter(Commit.repository_id == repo_id)
+                .group_by(Function.file_path)
+                .all()
+            )
+            if not file_stats:
+                return []
+            data = [
+                {
+                    'file_path':         row.file_path,
+                    'churn':             int(row.churn)             if row.churn       else 0,
+                    'lines_added':       0,
+                    'lines_deleted':     0,
+                    'file_age_days':     0.0,
+                    'commit_frequency':  0.0,
+                    'recent_churn':      0,
+                    'author_count':      int(row.author_count)      if row.author_count else 1,
+                    'ownership_entropy': 0.0,
+                    'dependency_count':  0,
+                    'complexity':        round(float(row.complexity), 2) if row.complexity else 0.0,
+                }
+                for row in file_stats
+            ]
+
+        if not data:
             return []
-        
-        # Convert to list of dicts for predictor
-        data = [
-            {
-                'file_path': row.file_path,
-                'churn': int(row.churn) if row.churn else 0,
-                'complexity': round(float(row.complexity), 2) if row.complexity else 0,
-                'author_count': int(row.author_count) if row.author_count else 1
-            }
-            for row in file_stats
-        ]
-        
-        # Run AI prediction
+
+        # Run AI prediction with all features
         predictor = RiskPredictor(contamination=0.1)
         predictions = predictor.predict_risk(data)
-        
+
         # Return top 20 at-risk files
         return predictions[:20]
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

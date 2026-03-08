@@ -6,7 +6,7 @@ import os
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Repository, Commit, Function
+from models import Repository, Commit, Function, FileMetrics
 from services.git_service import GitService
 from services.ast_parser import ASTParser
 
@@ -72,6 +72,13 @@ def process_repository(task_data: dict, db: Session):
                 process_commit_ast(commit, repo_path, db)
         
         db.commit()
+
+        logger.info(f"Computing rich file metrics for repo {repo_id}...")
+        try:
+            compute_and_store_file_metrics(repo_id, repo_path, db)
+        except Exception as metric_err:
+            logger.warning(f"File-metrics computation failed (non-fatal): {metric_err}")
+
         repo.status = "completed"
         db.commit()
         
@@ -122,6 +129,59 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session):
         
     except Exception as e:
         logger.error(f"Error processing AST for commit {commit.sha}: {e}")
+
+
+def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session):
+    """
+    Compute rich per-file metrics via GitService and store/update FileMetrics rows.
+    Also merges avg_complexity from the already-stored Function records.
+    """
+    from sqlalchemy import func as sqlfunc
+
+    # 1. Get git-history metrics for every file
+    metrics_list = git_service.get_file_metrics(repo_path)
+
+    # 2. Compute avg_complexity per file from stored Function records
+    complexity_rows = (
+        db.query(
+            Function.file_path,
+            sqlfunc.avg(Function.complexity).label('avg_complexity')
+        )
+        .join(Commit, Function.commit_id == Commit.id)
+        .filter(Commit.repository_id == repo_id)
+        .group_by(Function.file_path)
+        .all()
+    )
+    complexity_map = {row.file_path: float(row.avg_complexity or 0) for row in complexity_rows}
+
+    for m in metrics_list:
+        path = m['file_path']
+        # upsert: update existing row or insert new one
+        existing = (
+            db.query(FileMetrics)
+            .filter(FileMetrics.repository_id == repo_id, FileMetrics.file_path == path)
+            .first()
+        )
+        if existing:
+            row = existing
+        else:
+            row = FileMetrics(repository_id=repo_id, file_path=path)
+            db.add(row)
+
+        row.churn             = m['churn']
+        row.lines_added       = m['lines_added']
+        row.lines_deleted     = m['lines_deleted']
+        row.file_age_days     = m['file_age_days']
+        row.commit_frequency  = m['commit_frequency']
+        row.recent_churn      = m['recent_churn']
+        row.author_count      = m['author_count']
+        row.ownership_entropy = m['ownership_entropy']
+        row.dependency_count  = m['dependency_count']
+        row.avg_complexity    = complexity_map.get(path, 0.0)
+
+    db.commit()
+    logger.info(f"Stored FileMetrics for {len(metrics_list)} files in repo {repo_id}")
+
 
 def main():
     logger.info("Miner worker starting...")
