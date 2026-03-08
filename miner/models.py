@@ -12,6 +12,8 @@ class Repository(Base):
     owner = Column(String, nullable=False)
     clone_path = Column(String)
     status = Column(String, default="pending")
+    # SHA of the last commit that was fully indexed; used for incremental re-analysis
+    last_indexed_sha = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

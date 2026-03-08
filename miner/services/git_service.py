@@ -1,11 +1,14 @@
 import os
 import math
 import re
+import logging
 from collections import defaultdict, Counter
 from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 
 import git
+
+logger = logging.getLogger(__name__)
 
 
 class GitService:
@@ -41,6 +44,65 @@ class GitService:
 
         return commits
 
+    def get_new_commits(self, repo_path: str, since_sha: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Return only commits that have NOT been indexed yet.
+
+        If ``since_sha`` is provided (the last fully-indexed commit SHA), we
+        ask git for the range  ``<since_sha>..HEAD`` — typically a handful of
+        commits even on a repo with millions of entries.
+
+        If ``since_sha`` is None (first-time clone) we fall back to the full
+        history walk exactly as before.
+
+        Each returned dict also carries ``changed_files`` — the list of file
+        paths that were actually modified in that commit (from diff-tree),
+        so the caller can avoid re-parsing every file in the tree.
+        """
+        repo = git.Repo(repo_path)
+
+        if since_sha:
+            try:
+                # Only commits reachable from HEAD that are NOT ancestors of since_sha
+                commit_iter = repo.iter_commits(f'{since_sha}..HEAD')
+            except git.BadName:
+                # since_sha no longer in history (e.g. force-push) — full walk
+                logger.warning(
+                    f"since_sha {since_sha!r} not found in history; falling back to full walk"
+                )
+                commit_iter = repo.iter_commits()
+        else:
+            commit_iter = repo.iter_commits()
+
+        commits = []
+        for commit in commit_iter:
+            # Efficient changed-files list via diff against parent(s)
+            if commit.parents:
+                changed = [
+                    diff.b_path or diff.a_path
+                    for diff in commit.diff(commit.parents[0], create_patch=False)
+                    if (diff.b_path or diff.a_path)
+                ]
+            else:
+                # Root commit — every file is "new"
+                changed = [
+                    item.path
+                    for item in commit.tree.traverse()
+                    if item.type == 'blob'
+                ]
+
+            commits.append({
+                'sha':           commit.hexsha,
+                'author':        str(commit.author),
+                'message':       commit.message.strip(),
+                'timestamp':     commit.committed_datetime,
+                'changed_files': changed,
+            })
+
+        # Return in chronological order (oldest first) so we can checkpoint
+        # last_indexed_sha correctly after each commit.
+        return list(reversed(commits))
+
     def get_file_at_commit(self, repo_path: str, commit_sha: str, file_path: str) -> Optional[str]:
         try:
             repo = git.Repo(repo_path)
@@ -50,10 +112,17 @@ class GitService:
         except Exception:
             return None
 
-    def get_file_metrics(self, repo_path: str) -> List[Dict[str, Any]]:
+    def get_file_metrics(self, repo_path: str, since_sha: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Walk the full commit history and compute per-file features:
+        Walk the commit history and compute per-file features.
 
+        ``since_sha`` enables incremental mode: only commits in the range
+        ``<since_sha>..HEAD`` are walked, so the caller can merge the returned
+        deltas into existing FileMetrics rows instead of recomputing everything.
+
+        When ``since_sha`` is None (first run) the full history is walked.
+
+        Per-file features computed:
         - churn            : total number of commits that touched this file
         - lines_added      : cumulative lines added across all commits
         - lines_deleted    : cumulative lines deleted across all commits
@@ -62,15 +131,22 @@ class GitService:
         - recent_churn     : commits in the last 90 days
         - author_count     : number of distinct authors
         - ownership_entropy: Shannon entropy of author contribution fractions
-                             (high = knowledge spread; low = one owner)
         - dependency_count : rough count of import/require/include statements
                              in the HEAD version of the file
-
-        Returns a list of dicts, one per tracked file path.
         """
         repo = git.Repo(repo_path)
         now = datetime.now(timezone.utc)
         ninety_days_ago = now.timestamp() - 90 * 86400
+
+        if since_sha:
+            try:
+                commit_iter = repo.iter_commits(f'{since_sha}..HEAD')
+                logger.info(f"Incremental file-metrics walk from {since_sha[:7]}")
+            except git.BadName:
+                logger.warning(f"since_sha {since_sha!r} not in history; full walk")
+                commit_iter = repo.iter_commits()
+        else:
+            commit_iter = repo.iter_commits()
 
         file_churn:      Dict[str, int]             = defaultdict(int)
         file_lines_add:  Dict[str, int]             = defaultdict(int)
@@ -80,7 +156,7 @@ class GitService:
         file_recent:     Dict[str, int]             = defaultdict(int)
         file_authors:    Dict[str, Counter]         = defaultdict(Counter)
 
-        for commit in repo.iter_commits():
+        for commit in commit_iter:
             ts = commit.committed_date  # unix timestamp
             author = str(commit.author)
 
