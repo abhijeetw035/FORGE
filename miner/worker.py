@@ -3,6 +3,7 @@ import redis
 import logging
 import json
 import os
+import socket
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
@@ -264,26 +265,108 @@ def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session,
 
 def main():
     logger.info("Miner worker starting...")
-    
+
     r = redis.Redis(host='redis', port=6379, decode_responses=True)
-    
+
+    # ── Redis Stream constants ────────────────────────────────────────────
+    STREAM_NAME    = 'forge:tasks'
+    CONSUMER_GROUP = 'miner-workers'
+    # Each container gets a unique consumer name so multiple workers can run
+    CONSUMER_NAME  = f'worker-{socket.gethostname()}'
+    # Messages idle for longer than this are reclaimed from crashed workers (ms)
+    CLAIM_IDLE_MS  = 60_000   # 60 seconds
+    BLOCK_MS       = 5_000    # block up to 5 s waiting for new messages
+
+    # ── Ensure stream + consumer group exist ─────────────────────────────
+    try:
+        # MKSTREAM creates the stream if it doesn't exist yet
+        r.xgroup_create(STREAM_NAME, CONSUMER_GROUP, id='0', mkstream=True)
+        logger.info(f"Created consumer group '{CONSUMER_GROUP}' on stream '{STREAM_NAME}'")
+    except redis.exceptions.ResponseError as e:
+        if 'BUSYGROUP' in str(e):
+            logger.info(f"Consumer group '{CONSUMER_GROUP}' already exists — OK")
+        else:
+            raise
+
+    def _process_message(msg_id: str, fields: dict):
+        """Deserialise and process one stream message, then ACK it."""
+        try:
+            task_data = json.loads(fields['payload'])
+            logger.info(f"Processing task (stream id={msg_id}): {task_data}")
+
+            db = SessionLocal()
+            try:
+                if task_data['type'] == 'clone_and_analyze':
+                    process_repository(task_data, db)
+            finally:
+                db.close()
+
+            # ACK only after successful processing — message stays in the
+            # PEL (Pending Entries List) until this line runs.
+            r.xack(STREAM_NAME, CONSUMER_GROUP, msg_id)
+            logger.debug(f"ACKed message {msg_id}")
+
+        except Exception as e:
+            logger.error(f"Error processing message {msg_id}: {e}")
+            # Do NOT ack — message stays in PEL and will be reclaimed after
+            # CLAIM_IDLE_MS by the next XAUTOCLAIM call.
+
     while True:
         try:
-            task = r.blpop('task_queue', timeout=5)
-            if task:
-                task_data = json.loads(task[1])
-                logger.info(f"Processing task: {task_data}")
-                
-                db = SessionLocal()
-                try:
-                    if task_data['type'] == 'clone_and_analyze':
-                        process_repository(task_data, db)
-                finally:
-                    db.close()
+            # ── 1. Reclaim messages from crashed workers ──────────────────
+            # XAUTOCLAIM transfers any PEL messages idle > CLAIM_IDLE_MS to
+            # this worker.  This is the crash-safety guarantee: if a previous
+            # worker popped a job and died before ACKing, we pick it up here.
+            try:
+                claimed = r.xautoclaim(
+                    STREAM_NAME, CONSUMER_GROUP, CONSUMER_NAME,
+                    min_idle_time=CLAIM_IDLE_MS,
+                    start_id='0-0',
+                    count=10,
+                )
+                # xautoclaim returns (next_start_id, [(msg_id, fields), ...], [...deleted])
+                reclaimed_messages = claimed[1] if claimed else []
+                for msg_id, fields in reclaimed_messages:
+                    logger.warning(f"Reclaiming orphaned message {msg_id} from crashed worker")
+                    _process_message(msg_id, fields)
+            except redis.exceptions.ResponseError:
+                # XAUTOCLAIM requires Redis 7.0+; silently skip on older versions
+                pass
+
+            # ── 2. Read new messages ──────────────────────────────────────
+            # '>' means "give me messages nobody in this group has seen yet"
+            results = r.xreadgroup(
+                CONSUMER_GROUP, CONSUMER_NAME,
+                {STREAM_NAME: '>'},
+                count=1,
+                block=BLOCK_MS,
+            )
+
+            if results:
+                for stream, messages in results:
+                    for msg_id, fields in messages:
+                        _process_message(msg_id, fields)
             else:
-                logger.debug("No tasks in queue")
+                # ── 3. Fallback: drain legacy task_queue list ─────────────
+                # During rolling deploy the API may still push to the old list.
+                legacy = r.blpop('task_queue', timeout=1)
+                if legacy:
+                    try:
+                        task_data = json.loads(legacy[1])
+                        logger.info(f"Processing legacy list task: {task_data}")
+                        db = SessionLocal()
+                        try:
+                            if task_data['type'] == 'clone_and_analyze':
+                                process_repository(task_data, db)
+                        finally:
+                            db.close()
+                    except Exception as e:
+                        logger.error(f"Error processing legacy task: {e}")
+                else:
+                    logger.debug("No tasks — waiting...")
+
         except Exception as e:
-            logger.error(f"Error: {e}")
+            logger.error(f"Worker loop error: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ async def create_repository(
         "repository_id": db_repo.id,
         "url": repo.url
     }
-    redis_client.rpush('task_queue', json.dumps(task))
+    _publish_task(task)
     
     return db_repo
 
@@ -154,6 +154,6 @@ async def reanalyze_repository(
         "repository_id": repo.id,
         "url": repo.url,
     }
-    redis_client.rpush('task_queue', json.dumps(task))
+    _publish_task(task)
 
     return {"message": "Re-analysis queued", "repository_id": repo_id}
