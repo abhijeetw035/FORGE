@@ -73,15 +73,8 @@ export default function TeamPage({ params }: PageProps) {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-white mb-2">Team Stats</h1>
-        <p className="text-zinc-400">Contributor metrics and code entropy analysis by author</p>
-      </div>
-
-      <div className="glass-card p-6">
-        <Contributors data={contributorsData} />
-      </div>
+    <div className="max-w-7xl mx-auto">
+      <Contributors data={contributorsData} />
     </div>
   );
 }

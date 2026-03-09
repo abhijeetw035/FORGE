@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft, GitBranch } from 'lucide-react';
+import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft, GitBranch, Menu } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -13,84 +13,77 @@ interface LayoutProps {
 export default function RepositoryLayout({ children, params }: LayoutProps) {
   const pathname = usePathname();
   const [id, setId] = useState<string>('');
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     params.then(p => setId(p.id));
   }, [params]);
 
   const menuItems = [
-    {
-      name: 'Overview',
-      href: `/repositories/${id}`,
-      icon: LayoutDashboard,
-      exact: true
-    },
-    {
-      name: 'Entropy Map',
-      href: `/repositories/${id}/heatmap`,
-      icon: Activity
-    },
-    {
-      name: 'Evolution',
-      href: `/repositories/${id}/timeline`,
-      icon: History
-    },
-    {
-      name: 'Risk Forecast',
-      href: `/repositories/${id}/risk`,
-      icon: BrainCircuit
-    },
-    {
-      name: 'Functions',
-      href: `/repositories/${id}/functions`,
-      icon: GitBranch
-    },
-    {
-      name: 'Team Stats',
-      href: `/repositories/${id}/team`,
-      icon: Users
-    }
+    { name: 'Overview',      href: `/repositories/${id}`,           icon: LayoutDashboard, exact: true },
+    { name: 'Entropy Map',   href: `/repositories/${id}/heatmap`,   icon: Activity },
+    { name: 'Evolution',     href: `/repositories/${id}/timeline`,  icon: History },
+    { name: 'Risk Forecast', href: `/repositories/${id}/risk`,      icon: BrainCircuit },
+    { name: 'Functions',     href: `/repositories/${id}/functions`, icon: GitBranch },
+    { name: 'Team Stats',    href: `/repositories/${id}/team`,      icon: Users },
   ];
 
-  const isActive = (href: string, exact?: boolean) => {
-    if (exact) {
-      return pathname === href;
-    }
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string, exact?: boolean) =>
+    exact ? pathname === href : pathname.startsWith(href);
+
+  const sidebarW = collapsed ? 'w-16' : 'w-64';
+  const mainML   = collapsed ? 'ml-16' : 'ml-64';
 
   return (
     <div className="flex min-h-screen">
-      <aside className="w-64 bg-zinc-950 border-r border-zinc-800 fixed h-screen overflow-y-auto">
-        <div className="p-6">
-          <Link 
+      <aside className={`${sidebarW} bg-zinc-950 border-r border-zinc-800 fixed h-screen overflow-y-auto transition-all duration-200 flex flex-col`}>
+
+        <div className={`flex-1 ${collapsed ? 'px-2 py-4' : 'p-6'}`}>
+
+          {/* Back link */}
+          <Link
             href="/dashboard"
-            className="flex items-center gap-2 px-4 py-3 mb-6 rounded-lg text-white bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-700 hover:border-zinc-600 transition-all duration-200"
+            className={`flex items-center gap-2 px-3 py-3 mb-3 rounded-lg text-white bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-700 hover:border-zinc-600 transition-all duration-200 ${collapsed ? 'justify-center' : ''}`}
+            title="All Repositories"
           >
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-medium">All Repositories</span>
+            <ArrowLeft className="w-5 h-5 shrink-0" />
+            {!collapsed && <span className="font-medium truncate">All Repositories</span>}
           </Link>
 
-          <h2 className="text-lg font-semibold text-white mb-4">Repository</h2>
-          <nav className="space-y-2">
+          {/* Hamburger toggle — sits below the back button */}
+          <button
+            onClick={() => setCollapsed(v => !v)}
+            className={`flex items-center gap-2 px-3 py-2 mb-5 w-full rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-900 transition-all duration-200 ${collapsed ? 'justify-center' : ''}`}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <Menu className="w-5 h-5 shrink-0" />
+            {!collapsed && <span className="text-sm font-medium">Collapse</span>}
+          </button>
+
+          {!collapsed && (
+            <h2 className="text-lg font-semibold text-white mb-4">Repository</h2>
+          )}
+
+          <nav className="space-y-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const active = isActive(item.href, item.exact);
-              
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
+                  title={item.name}
                   className={`
-                    flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200
-                    ${active 
-                      ? 'bg-blue-500/10 text-blue-400 border-r-2 border-blue-500' 
-                      : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
-                    }
+                    flex items-center gap-3 px-3 py-3 rounded-lg transition-all duration-200
+                    ${collapsed ? 'justify-center' : ''}
+                    ${active
+                      ? 'bg-blue-500/10 text-blue-400 border-r-2 border-blue-500'
+                      : 'text-zinc-400 hover:text-white hover:bg-zinc-900'}
                   `}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span className="font-medium">{item.name}</span>
+                  <Icon className="w-5 h-5 shrink-0" />
+                  {!collapsed && <span className="font-medium">{item.name}</span>}
                 </Link>
               );
             })}
@@ -98,7 +91,7 @@ export default function RepositoryLayout({ children, params }: LayoutProps) {
         </div>
       </aside>
 
-      <main className="flex-1 ml-64 overflow-y-auto">
+      <main className={`flex-1 ${mainML} overflow-y-auto transition-all duration-200`}>
         <div className="p-8">
           {children}
         </div>
@@ -106,3 +99,4 @@ export default function RepositoryLayout({ children, params }: LayoutProps) {
     </div>
   );
 }
+
