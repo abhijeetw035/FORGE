@@ -9,9 +9,6 @@ import {
 } from '@/lib/api';
 import { Lightbulb, Download, ShieldAlert, Zap, Flame, Users, FileCode2 } from 'lucide-react';
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────────────────────────
 function riskColor(level: string) {
   if (level === 'critical') return 'text-red-400 bg-red-500/10 border-red-500/30';
   if (level === 'warning')  return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30';
@@ -29,9 +26,6 @@ function shortPath(path: string) {
   return parts.length > 3 ? `…/${parts.slice(-2).join('/')}` : path;
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Section card
-// ────────────────────────────────────────────────────────────────────────────────
 function SectionCard({ icon, title, count, children }: {
   icon: React.ReactNode;
   title: string;
@@ -52,9 +46,6 @@ function SectionCard({ icon, title, count, children }: {
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────────
-// Page
-// ────────────────────────────────────────────────────────────────────────────────
 export default function InsightsPage() {
   const params = useParams<{ id: string }>();
   const id = params?.id ?? '';
@@ -78,7 +69,6 @@ export default function InsightsPage() {
     });
   }, [id]);
 
-  // ── Derived top-10 lists ────────────────────────────────────────────────────
   const topRisky = useMemo(
     () => [...risk].sort((a, b) => b.risk_score - a.risk_score).slice(0, 10),
     [risk],
@@ -88,7 +78,6 @@ export default function InsightsPage() {
     [risk],
   );
   const topComplex = useMemo(() => {
-    // Flatten all versions and pick unique function names by highest complexity
     const seen = new Map<string, { name: string; complexity: number; file: string }>();
     funcs.forEach(fn => {
       fn.versions.forEach(v => {
@@ -106,7 +95,6 @@ export default function InsightsPage() {
     [contributors],
   );
 
-  // ── Export ──────────────────────────────────────────────────────────────────
   function exportJSON() {
     const payload = { topRisky, topChurn, topComplex, topContributors };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
@@ -132,7 +120,6 @@ export default function InsightsPage() {
     URL.revokeObjectURL(url);
   }
 
-  // ── Loading ─────────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto space-y-6">
@@ -150,7 +137,6 @@ export default function InsightsPage() {
     );
   }
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="max-w-7xl mx-auto space-y-6">
 
