@@ -91,6 +91,7 @@ function ComplexityChart({ versions }: { versions: FunctionVersionData[] }) {
 // ── Function Timeline (right panel) ─────────────────────────────────────────
 function FunctionTimeline({ entry, repoUrl }: { entry: FunctionEvolutionData | null; repoUrl: string }) {
   const [dropSearch, setDropSearch] = useState('');
+  const [selectedCommit, setSelectedCommit] = useState<FunctionVersionData | null>(null);
   // entry is controlled by parent; this component only renders the timeline list
   if (!entry) return (
     <div className="flex flex-col items-center justify-center h-40 text-zinc-500 text-sm gap-2">
@@ -114,30 +115,74 @@ function FunctionTimeline({ entry, repoUrl }: { entry: FunctionEvolutionData | n
   return (
     <div className="overflow-y-auto max-h-[560px] pr-1">
       <ol className="relative border-l-2 border-zinc-700 ml-2">
-        {sorted.map((v, i) => (
-          <li key={`${v.commit_sha}-${i}`} className="relative mb-6 pl-6">
-            <span className="absolute left-[-9px] top-1 w-4 h-4 rounded-full bg-blue-500 ring-4 ring-zinc-900 flex-shrink-0" />
-            <p className="text-xs text-zinc-500 mb-0.5">{fmtLong(v.timestamp)}</p>
-            <p className="text-sm text-zinc-100 font-medium leading-snug line-clamp-2">
-              {v.commit_message || 'No message'}
-            </p>
-            <div className="flex flex-wrap gap-3 mt-1 text-xs">
-              <a
-                href={commitUrl(v.commit_sha)}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={e => e.stopPropagation()}
-                className="font-mono text-blue-400 hover:text-blue-300 hover:underline transition-colors"
-                title={`Open commit ${v.commit_sha} on GitHub`}
+        {sorted.map((v, i) => {
+          const prevV = sorted[i + 1];
+          const complexityDelta = prevV ? v.complexity - prevV.complexity : null;
+          const isActive = selectedCommit?.commit_sha === v.commit_sha;
+          return (
+            <li key={`${v.commit_sha}-${i}`} className="relative mb-4 pl-6">
+              <span className={`absolute left-[-9px] top-1 w-4 h-4 rounded-full ring-4 ring-zinc-900 flex-shrink-0 transition-colors ${isActive ? 'bg-cyan-400' : 'bg-blue-500'}`} />
+              <button
+                onClick={() => setSelectedCommit(isActive ? null : v)}
+                className={`w-full text-left rounded-lg px-3 py-2 transition-colors border ${isActive ? 'bg-zinc-800 border-cyan-500/40' : 'bg-transparent border-transparent hover:bg-zinc-800/50 hover:border-zinc-700'}`}
               >
-                {v.commit_sha.slice(0, 7)}
-              </a>
-              <span className="text-green-400">+{v.start_line}</span>
-              <span className="text-red-400">-{v.end_line}</span>
-              <span className="text-zinc-400">~{v.complexity.toFixed(1)} cplx</span>
-            </div>
-          </li>
-        ))}
+                <p className="text-xs text-zinc-500 mb-0.5">{fmtLong(v.timestamp)}</p>
+                <p className="text-sm text-zinc-100 font-medium leading-snug line-clamp-2">
+                  {v.commit_message || 'No message'}
+                </p>
+                <div className="flex flex-wrap gap-3 mt-1 text-xs">
+                  <a
+                    href={commitUrl(v.commit_sha)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={e => e.stopPropagation()}
+                    className="font-mono text-blue-400 hover:text-blue-300 hover:underline transition-colors"
+                    title={`Open commit ${v.commit_sha} on GitHub`}
+                  >
+                    {v.commit_sha.slice(0, 7)}
+                  </a>
+                  <span className="text-zinc-400">~{v.complexity.toFixed(1)} cplx</span>
+                  {complexityDelta !== null && (
+                    <span className={complexityDelta > 0 ? 'text-red-400' : complexityDelta < 0 ? 'text-green-400' : 'text-zinc-500'}>
+                      {complexityDelta > 0 ? '+' : ''}{complexityDelta.toFixed(1)} Δcplx
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              {/* Diff preview panel */}
+              {isActive && (
+                <div className="mt-2 ml-0 bg-zinc-950 border border-zinc-700 rounded-lg p-3 text-xs font-mono">
+                  <p className="text-zinc-400 mb-2 font-sans font-semibold">Diff Preview</p>
+                  <div className="space-y-1">
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 w-20 shrink-0">Lines</span>
+                      <span className="text-green-400">+{v.start_line} added</span>
+                      <span className="text-red-400">−{v.end_line} removed</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 w-20 shrink-0">Complexity</span>
+                      <span className="text-zinc-200">{v.complexity.toFixed(1)}</span>
+                      {complexityDelta !== null && (
+                        <span className={complexityDelta > 0 ? 'text-red-400' : complexityDelta < 0 ? 'text-green-400' : 'text-zinc-500'}>
+                          ({complexityDelta > 0 ? '+' : ''}{complexityDelta.toFixed(1)})
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 w-20 shrink-0">Author</span>
+                      <span className="text-zinc-300">{v.commit_author}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-zinc-600 w-20 shrink-0">File</span>
+                      <span className="text-zinc-400 truncate">{v.file_path.split('/').slice(-2).join('/')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
         {/* Created marker */}
         <li className="relative pl-6">
           <span className="absolute left-[-9px] top-1 w-4 h-4 rounded-full bg-zinc-600 ring-4 ring-zinc-900 flex-shrink-0" />
@@ -239,16 +284,24 @@ function FunctionRow({ entry, isSelected = false, onSelect }: {
 
         {/* badges */}
         <td className="px-4 py-3">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {entry.was_moved && (
               <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30">
-                <ArrowRightLeft className="w-3 h-3" /> moved
+                <ArrowRightLeft className="w-3 h-3" /> Moved
               </span>
             )}
             {entry.was_renamed && (
               <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/30">
-                <Pencil className="w-3 h-3" /> renamed
+                <Pencil className="w-3 h-3" /> Renamed
               </span>
+            )}
+            {entry.commit_count === 1 && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+                New
+              </span>
+            )}
+            {!entry.was_moved && !entry.was_renamed && entry.commit_count > 1 && (
+              <span className="text-xs text-zinc-600">—</span>
             )}
           </div>
         </td>

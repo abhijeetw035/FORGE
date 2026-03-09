@@ -67,6 +67,7 @@ export default function HeatmapPage({ params }: PageProps) {
   const [sortKey, setSortKey] = useState<SortKey>('risk_score');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState(1);
+  const [quickFilter, setQuickFilter] = useState<'none' | 'risky' | 'churn' | 'complex' | 'large'>('none');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -91,7 +92,22 @@ export default function HeatmapPage({ params }: PageProps) {
 
   const sorted = useMemo(() => {
     const q = search.toLowerCase();
-    const filtered = q ? files.filter(f => f.file_path.toLowerCase().includes(q)) : files;
+    let filtered = q ? files.filter(f => f.file_path.toLowerCase().includes(q)) : files;
+
+    // Quick preset filters
+    if (quickFilter === 'risky') {
+      return [...filtered].sort((a, b) => b.risk_score - a.risk_score);
+    }
+    if (quickFilter === 'churn') {
+      return [...filtered].sort((a, b) => b.churn - a.churn);
+    }
+    if (quickFilter === 'complex') {
+      return [...filtered].sort((a, b) => b.complexity - a.complexity);
+    }
+    if (quickFilter === 'large') {
+      return [...filtered].sort((a, b) => b.complexity * 10 - a.complexity * 10);
+    }
+
     return [...filtered].sort((a, b) => {
       const av = a[sortKey] as number | string;
       const bv = b[sortKey] as number | string;
@@ -100,7 +116,7 @@ export default function HeatmapPage({ params }: PageProps) {
       }
       return sortDir === 'asc' ? (av as number) - (bv as number) : (bv as number) - (av as number);
     });
-  }, [files, search, sortKey, sortDir]);
+  }, [files, search, sortKey, sortDir, quickFilter]);
 
   const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
   const pageRows = sorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -177,6 +193,30 @@ export default function HeatmapPage({ params }: PageProps) {
           onChange={e => { setSearch(e.target.value); setPage(1); }}
           className="w-full bg-zinc-900 border border-zinc-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
         />
+      </div>
+
+      {/* Quick filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-zinc-500 font-medium mr-1">Quick view:</span>
+        {([
+          { key: 'none',    label: 'All Files' },
+          { key: 'risky',   label: '🔴 Top Risky' },
+          { key: 'churn',   label: '🔥 High Churn' },
+          { key: 'complex', label: '⚡ Most Complex' },
+          { key: 'large',   label: '📦 Largest Files' },
+        ] as const).map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => { setQuickFilter(key); setPage(1); }}
+            className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+              quickFilter === key
+                ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                : 'text-zinc-400 border-zinc-700 hover:border-zinc-500 hover:text-white'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Main split layout */}

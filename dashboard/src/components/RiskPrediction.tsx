@@ -240,6 +240,47 @@ export default function RiskPrediction({ data }: RiskPredictionProps) {
                     ⚠️ {file.reason}
                   </p>
                 )}
+
+                {/* Risk Factors summary — always visible */}
+                <div className="mt-3 pt-3 border-t border-zinc-800">
+                  <p className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">Risk Factors</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(() => {
+                      const maxChurn = Math.max(...data.map(d => d.churn ?? 0), 1);
+                      const maxComplexity = Math.max(...data.map(d => d.complexity ?? 0), 1);
+                      const maxEntropy = Math.max(...data.map(d => d.ownership_entropy ?? 0), 1);
+
+                      const churnLevel = (file.churn ?? 0) / maxChurn > 0.6 ? 'High' : (file.churn ?? 0) / maxChurn > 0.3 ? 'Med' : 'Low';
+                      const complexityLevel = (file.complexity ?? 0) / maxComplexity > 0.6 ? 'High' : (file.complexity ?? 0) / maxComplexity > 0.3 ? 'Med' : 'Low';
+                      const entropyLevel = (file.ownership_entropy ?? 0) / maxEntropy > 0.6 ? 'High' : (file.ownership_entropy ?? 0) / maxEntropy > 0.3 ? 'Med' : 'Low';
+
+                      const levelColor = (l: string) =>
+                        l === 'High' ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                        : l === 'Med' ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
+                        : 'bg-green-500/15 text-green-400 border-green-500/30';
+
+                      return (
+                        <>
+                          <span className={`text-xs px-2 py-0.5 rounded border ${levelColor(churnLevel)}`}>
+                            Churn: {churnLevel}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded border ${levelColor(complexityLevel)}`}>
+                            Complexity: {complexityLevel}
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded border bg-zinc-800 text-zinc-300 border-zinc-700">
+                            Authors: {file.author_count ?? 0}
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded border bg-zinc-800 text-zinc-300 border-zinc-700">
+                            Deps: {file.dependency_count ?? 0}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded border ${levelColor(entropyLevel)}`}>
+                            Ownership: {entropyLevel}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
               </div>
 
               {/* Expandable feature breakdown */}

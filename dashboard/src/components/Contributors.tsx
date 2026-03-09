@@ -5,6 +5,7 @@ import { ContributorData } from '@/lib/api';
 import { Users, GitCommit, Code, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   PieChart, Pie, Cell, Tooltip as ReTooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
 } from 'recharts';
 
 interface ContributorsProps {
@@ -194,6 +195,51 @@ export default function Contributors({ data }: ContributorsProps) {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Commits per Author chart */}
+      <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+        <h2 className="font-semibold text-zinc-100 mb-4 flex items-center gap-2">
+          <GitCommit className="w-4 h-4 text-blue-400" /> Commits by Author
+        </h2>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart
+            data={data.slice(0, 12).map((c, i) => ({
+              name: c.author.split(/\s+/)[0],   // first name only to keep labels short
+              commits: c.total_commits,
+              loc: c.total_loc,
+              fill: COLORS[i % COLORS.length],
+            }))}
+            margin={{ top: 4, right: 16, left: 0, bottom: 32 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" vertical={false} />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: '#a1a1aa', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              angle={-30}
+              textAnchor="end"
+            />
+            <YAxis
+              tick={{ fill: '#a1a1aa', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              width={36}
+            />
+            <ReTooltip
+              contentStyle={{ background: '#18181b', border: '1px solid #3f3f46', borderRadius: 8, fontSize: 12 }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              formatter={(v: any, name: any) => [v?.toLocaleString?.() ?? v, name === 'commits' ? 'Total Commits' : name ?? '']}
+              cursor={{ fill: 'rgba(255,255,255,0.04)' }}
+            />
+            <Bar dataKey="commits" radius={[4, 4, 0, 0]} maxBarSize={40}>
+              {data.slice(0, 12).map((_, i) => (
+                <Cell key={i} fill={COLORS[i % COLORS.length]} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
       </div>
 
       {/* Contributors table */}

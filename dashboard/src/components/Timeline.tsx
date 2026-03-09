@@ -21,7 +21,13 @@ const CustomTooltip = ({ active, payload }: any) => {
         <div className="space-y-1 text-xs">
           <p>Date: {new Date(data.date).toLocaleDateString()}</p>
           <p className="text-blue-400">Functions: {data.function_count.toLocaleString()}</p>
-          <p className="text-orange-400">Avg Complexity: {data.avg_complexity}</p>
+          <p className="text-orange-400">Avg Complexity: {data.avg_complexity}
+            {data.complexityDelta !== 0 && (
+              <span className={`ml-2 text-xs font-semibold ${data.complexityDelta > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                {data.complexityDelta > 0 ? '▲' : '▼'} {Math.abs(data.complexityDelta)}
+              </span>
+            )}
+          </p>
           <p className="text-green-400">Total LOC: {data.total_loc.toLocaleString()}</p>
         </div>
       </div>
@@ -46,6 +52,7 @@ export default function Timeline({ data }: TimelineProps) {
     ...item,
     index,
     dateLabel: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    complexityDelta: index === 0 ? 0 : +(item.avg_complexity - data[index - 1].avg_complexity).toFixed(2),
   }));
 
   const findSpikes = () => {

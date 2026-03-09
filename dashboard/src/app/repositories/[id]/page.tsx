@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { GitBranch, GitCommit, Activity, AlertTriangle, RefreshCw } from 'lucide-react';
-import { getRepository, getRepositoryTimeline, getRepositoryRiskPrediction, reanalyzeRepository } from '@/lib/api';
+import { GitBranch, GitCommit, Activity, AlertTriangle, RefreshCw, Code, Users, Eye, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { getRepository, getRepositoryTimeline, getRepositoryRiskPrediction, getRepositoryContributors, reanalyzeRepository } from '@/lib/api';
 import StatusPoller from '@/components/StatusPoller';
 import { Repository } from '@/types';
-import type { TimelineData, RiskPredictionData } from '@/lib/api';
+import type { TimelineData, RiskPredictionData, ContributorData } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 interface PageProps {
@@ -19,6 +19,7 @@ export default function RepositoryPage({ params }: PageProps) {
   const [repository, setRepository] = useState<Repository | null>(null);
   const [timelineData, setTimelineData] = useState<TimelineData[]>([]);
   const [riskData, setRiskData] = useState<RiskPredictionData[]>([]);
+  const [contributors, setContributors] = useState<ContributorData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [reanalyzing, setReanalyzing] = useState(false);
@@ -42,15 +43,17 @@ export default function RepositoryPage({ params }: PageProps) {
 
     const fetchData = async () => {
       try {
-        const [repo, timeline, risks] = await Promise.all([
+        const [repo, timeline, risks, contribs] = await Promise.all([
           getRepository(id),
           getRepositoryTimeline(id),
           getRepositoryRiskPrediction(id),
+          getRepositoryContributors(id).catch(() => [] as ContributorData[]),
         ]);
         
         setRepository(repo);
         setTimelineData(timeline);
         setRiskData(risks);
+        setContributors(contribs);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load repository');
       } finally {
@@ -177,74 +180,135 @@ export default function RepositoryPage({ params }: PageProps) {
           <p className="text-zinc-400">High-level summary of repository metrics and health</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="glass-card p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-blue-500/10 rounded-lg">
-                <GitCommit className="w-6 h-6 text-blue-400" />
+        {/* 7 KPI cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-8">
+          {/* Total Commits */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-blue-500/10 rounded-lg">
+                <GitCommit className="w-4 h-4 text-blue-400" />
               </div>
-              <div>
-                <p className="text-sm text-zinc-400">Total Commits</p>
-                <p className="text-2xl font-bold text-white">
-                  {timelineData.length.toLocaleString()}
-                </p>
-              </div>
+              <p className="text-xs text-zinc-400">Total Commits</p>
             </div>
-            <p className="text-xs text-zinc-500">Tracked across entire repository history</p>
+            <p className="text-2xl font-bold text-white">{timelineData.length.toLocaleString()}</p>
+            <p className="text-xs text-zinc-600">across all branches</p>
           </div>
 
-          <div className="glass-card p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-orange-500/10 rounded-lg">
-                <Activity className="w-6 h-6 text-orange-400" />
+          {/* Total LOC */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-emerald-500/10 rounded-lg">
+                <Code className="w-4 h-4 text-emerald-400" />
               </div>
-              <div>
-                <p className="text-sm text-zinc-400">Complexity Score</p>
-                <p className="text-2xl font-bold text-white">
-                  {timelineData.length > 0 
-                    ? Math.round(timelineData[timelineData.length - 1].avg_complexity)
-                    : 0}
-                </p>
-              </div>
+              <p className="text-xs text-zinc-400">Total LOC</p>
             </div>
-            <p className="text-xs text-zinc-500">Average cyclomatic complexity</p>
+            <p className="text-2xl font-bold text-white">
+              {timelineData.length > 0
+                ? timelineData[timelineData.length - 1].total_loc.toLocaleString()
+                : '—'}
+            </p>
+            <p className="text-xs text-zinc-600">lines of code</p>
           </div>
 
-          <div className="glass-card p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-3 bg-red-500/10 rounded-lg">
-                <AlertTriangle className="w-6 h-6 text-red-400" />
+          {/* Avg Complexity */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-orange-500/10 rounded-lg">
+                <Activity className="w-4 h-4 text-orange-400" />
               </div>
-              <div>
-                <p className="text-sm text-zinc-400">Risk Level</p>
-                <p className="text-2xl font-bold text-white">
-                  {riskData.filter(d => d.risk_level === 'critical').length}
-                </p>
-              </div>
+              <p className="text-xs text-zinc-400">Avg Complexity</p>
             </div>
-            <p className="text-xs text-zinc-500">Critical files requiring attention</p>
+            <p className="text-2xl font-bold text-white">
+              {timelineData.length > 0
+                ? timelineData[timelineData.length - 1].avg_complexity.toFixed(1)
+                : '—'}
+            </p>
+            <p className="text-xs text-zinc-600">cyclomatic avg</p>
+          </div>
+
+          {/* Contributors */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-purple-500/10 rounded-lg">
+                <Users className="w-4 h-4 text-purple-400" />
+              </div>
+              <p className="text-xs text-zinc-400">Contributors</p>
+            </div>
+            <p className="text-2xl font-bold text-white">{contributors.length}</p>
+            <p className="text-xs text-zinc-600">active authors</p>
+          </div>
+
+          {/* Critical Files */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-red-500/10 rounded-lg">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+              </div>
+              <p className="text-xs text-zinc-400">Critical Files</p>
+            </div>
+            <p className="text-2xl font-bold text-red-400">
+              {riskData.filter(d => d.risk_level === 'critical').length}
+            </p>
+            <p className="text-xs text-zinc-600">need attention</p>
+          </div>
+
+          {/* Warning Files */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-yellow-500/10 rounded-lg">
+                <ShieldAlert className="w-4 h-4 text-yellow-400" />
+              </div>
+              <p className="text-xs text-zinc-400">Warning Files</p>
+            </div>
+            <p className="text-2xl font-bold text-yellow-400">
+              {riskData.filter(d => d.risk_level === 'warning').length}
+            </p>
+            <p className="text-xs text-zinc-600">monitor closely</p>
+          </div>
+
+          {/* Watchlist Files */}
+          <div className="glass-card p-4 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-zinc-500/10 rounded-lg">
+                <Eye className="w-4 h-4 text-zinc-400" />
+              </div>
+              <p className="text-xs text-zinc-400">Watchlist</p>
+            </div>
+            <p className="text-2xl font-bold text-zinc-300">
+              {riskData.filter(d => d.risk_level === 'watchlist').length}
+            </p>
+            <p className="text-xs text-zinc-600">keep an eye on</p>
           </div>
         </div>
 
         <div className="glass-card p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link 
               href={`/repositories/${id}/heatmap`}
               className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-blue-500 transition-all group"
             >
               <Activity className="w-5 h-5 text-blue-400 mb-2" />
-              <h4 className="font-semibold text-white mb-1">Explore Entropy Map</h4>
-              <p className="text-sm text-zinc-400">Visualize code complexity hotspots</p>
+              <h4 className="font-semibold text-white mb-1">File Analytics</h4>
+              <p className="text-sm text-zinc-400">Explore file-level churn and risk</p>
             </Link>
 
             <Link 
               href={`/repositories/${id}/risk`}
-              className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-blue-500 transition-all group"
+              className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-red-500/50 transition-all group"
             >
               <AlertTriangle className="w-5 h-5 text-red-400 mb-2" />
-              <h4 className="font-semibold text-white mb-1">View Risk Forecast</h4>
+              <h4 className="font-semibold text-white mb-1">Risk Forecast</h4>
               <p className="text-sm text-zinc-400">AI-powered predictions for at-risk files</p>
+            </Link>
+
+            <Link 
+              href={`/repositories/${id}/insights`}
+              className="p-4 bg-zinc-900/50 border border-zinc-800 rounded-lg hover:border-purple-500/50 transition-all group"
+            >
+              <ShieldCheck className="w-5 h-5 text-purple-400 mb-2" />
+              <h4 className="font-semibold text-white mb-1">Insights</h4>
+              <p className="text-sm text-zinc-400">Top risky files, complex functions, high churn</p>
             </Link>
           </div>
         </div>

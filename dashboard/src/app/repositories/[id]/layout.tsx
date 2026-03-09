@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft, GitBranch, Menu } from 'lucide-react';
+import { LayoutDashboard, Activity, History, BrainCircuit, Users, ArrowLeft, GitBranch, Menu, Lightbulb } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -20,12 +20,13 @@ export default function RepositoryLayout({ children, params }: LayoutProps) {
   }, [params]);
 
   const menuItems = [
-    { name: 'Overview',      href: `/repositories/${id}`,           icon: LayoutDashboard, exact: true },
-    { name: 'Entropy Map',   href: `/repositories/${id}/heatmap`,   icon: Activity },
-    { name: 'Evolution',     href: `/repositories/${id}/timeline`,  icon: History },
-    { name: 'Risk Forecast', href: `/repositories/${id}/risk`,      icon: BrainCircuit },
-    { name: 'Functions',     href: `/repositories/${id}/functions`, icon: GitBranch },
-    { name: 'Team Stats',    href: `/repositories/${id}/team`,      icon: Users },
+    { name: 'Overview',      href: `/repositories/${id}`,             icon: LayoutDashboard, exact: true },
+    { name: 'File Analytics',href: `/repositories/${id}/heatmap`,     icon: Activity },
+    { name: 'Evolution',     href: `/repositories/${id}/timeline`,    icon: History },
+    { name: 'Risk Forecast', href: `/repositories/${id}/risk`,        icon: BrainCircuit },
+    { name: 'Functions',     href: `/repositories/${id}/functions`,   icon: GitBranch },
+    { name: 'Team Stats',    href: `/repositories/${id}/team`,        icon: Users },
+    { name: 'Insights',      href: `/repositories/${id}/insights`,    icon: Lightbulb },
   ];
 
   const isActive = (href: string, exact?: boolean) =>
