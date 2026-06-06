@@ -2,8 +2,8 @@
 set -e
 
 echo "Waiting for postgres..."
-while ! nc -z postgres 5432; do
-  sleep 0.1
+while ! nc -z postgres 5432 2>/dev/null; do
+  sleep 1
 done
 echo "PostgreSQL started"
 

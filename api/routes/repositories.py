@@ -108,6 +108,15 @@ async def delete_repository(
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
     
+    # Bulk delete child records to avoid OOM errors (ORM cascades load all records into memory)
+    # and to fix IntegrityError missing FileMetrics cascade.
+    commit_ids = [c.id for c in db.query(Commit.id).filter(Commit.repository_id == repo_id)]
+    if commit_ids:
+        db.query(Function).filter(Function.commit_id.in_(commit_ids)).delete(synchronize_session=False)
+
+    db.query(Commit).filter(Commit.repository_id == repo_id).delete(synchronize_session=False)
+    db.query(FileMetrics).filter(FileMetrics.repository_id == repo_id).delete(synchronize_session=False)
+
     db.delete(repo)
     db.commit()
     return {"message": "Repository deleted"}
