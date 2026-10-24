@@ -22,7 +22,8 @@ FORGE analyzes your codebase using AST parsing and machine learning to reveal hi
 - 🔬 **Function Evolution Tracking** — SHA-256 AST identity hashing lets FORGE follow a function through moves, renames, and refactors
 - ⚡ **Incremental Indexing** — Only new commits are scanned; a `last_indexed_sha` checkpoint avoids re-walking the full history
 - 🛡️ **At-Least-Once Task Delivery** — Redis Streams with consumer groups; crashed workers are auto-recovered via `XAUTOCLAIM`
-- 🔐 **Private Repository Support** — GitHub token authentication
+- 🔐 **Private Repository Support & User Auth** — GitHub token authentication for repos, and JWT-based user authentication for protected dashboard routes
+- 🤖 **CI/CD Integration** — GitHub Actions workflow available to automatically analyze PRs and post risk warnings as comments
 ---
 
 ## 🚀 Quick Start
@@ -129,6 +130,10 @@ Four production-quality improvements were made to address real weaknesses:
 | `dependency_count` | Import surface area |
 
 Files that are statistical outliers across all 9 axes receive the highest anomaly scores.
+The dashboard presents these scores under the **AI Risk Forecast (The Oracle)** categorized into:
+- 🔴 **Critical (80-100%)**: Statistical outlier, needs immediate attention. High chance of introducing bugs.
+- 🟠 **Warning (50-79%)**: Abnormal patterns, monitor closely. Consider refactoring.
+- 🟡 **Watchlist (<50%)**: Slightly unusual, keep watching.
 
 ---
 
@@ -176,6 +181,20 @@ XAUTOCLAIM forge:tasks miner-workers worker-X 60000 0-0  # reclaim stuck tasks
 ```
 
 Tasks stay in the pending-entries list until explicitly acknowledged. After 60 seconds of idle time any unacknowledged task is reclaimed and re-delivered to an available worker. A `BLPOP` fallback handles Redis instances that don't support Streams.
+
+---
+
+### 5. Seamless CI/CD Integration
+
+A built-in GitHub Action workflow (`.github/workflows/forge-analysis.yml`) allows you to automatically analyze pull requests.
+It clones the changed files, checks their churn/complexity metrics via the FORGE API, and automatically leaves comments on PRs to flag **Critical Risk (🔴)** or **High Risk (🟠)** files. This turns the analysis into an actionable code review tool instead of just a static dashboard.
+
+---
+
+### 6. Protected User Authentication
+
+The dashboard implements secure JWT-based user authentication.
+Local storage manages tokens (with automatic API re-validation on mount) allowing role-based access to the dashboard. Unauthorized users are auto-redirected away from protected routes like `dashboard/` or `repositories/[id]/`.
 
 ---
 

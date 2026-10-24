@@ -58,7 +58,6 @@ services:
     build:
       context: ./miner
       dockerfile: Dockerfile
-    container_name: forge-miner
     volumes:
       - ./miner:/app
       - ./storage:/storage

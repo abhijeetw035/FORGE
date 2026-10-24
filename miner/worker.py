@@ -38,6 +38,11 @@ def process_repository(task_data: dict, db: Session):
     
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if not repo:
+        if repo_id >= 999000:
+            # Simulate real work for dummy benchmark tasks to measure concurrency scaling
+            time.sleep(0.5)
+            logger.info(f"Simulated work for dummy repo {repo_id}")
+            return
         logger.error(f"Repository {repo_id} not found")
         return
     
