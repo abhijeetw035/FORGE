@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -62,10 +62,17 @@ class Function(Base):
     ast_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # stable identity hashes — see miner/services/ast_parser.py for details
+    # stable identity tracking fields
     body_hash      = Column(String(16), nullable=True, index=True)
     signature_hash = Column(String(16), nullable=True, index=True)
     canonical_id   = Column(String(16), nullable=True, index=True)
+    qualified_name = Column(String, nullable=True)
+    change_type    = Column(String(16), nullable=True)
+    similarity     = Column(Float, nullable=True)
+
+    __table_args__ = (
+        Index('ix_functions_file_path_qualified_name', 'file_path', 'qualified_name'),
+    )
 
     commit = relationship("Commit", back_populates="functions")
 

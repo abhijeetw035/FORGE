@@ -280,6 +280,9 @@ export interface FunctionVersionData {
   timestamp: string | null;
   file_path: string;
   name: string;
+  qualified_name?: string | null;
+  change_type?: string | null;
+  similarity?: number | null;
   complexity: number;
   start_line: number;
   end_line: number;
@@ -288,6 +291,7 @@ export interface FunctionVersionData {
 export interface FunctionEvolutionData {
   canonical_id: string;
   name: string;
+  qualified_name?: string | null;
   file_path: string;
   first_seen_sha: string;
   last_seen_sha: string;

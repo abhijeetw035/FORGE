@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -50,17 +50,17 @@ class Function(Base):
     ast_data = Column(JSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # ── stable identity hashes (added for cross-commit function tracking) ──
-    # body_hash      : SHA-256[:16] of normalised function body — same after
-    #                  moves, reformats, or indentation-only changes.
-    # signature_hash : SHA-256[:16] of "<lang>:<name>(<params>)" — stable
-    #                  across body changes; changes on rename/param edit.
-    # canonical_id   : SHA-256[:16] of (signature_hash + body_hash) — the
-    #                  primary cross-commit identity key used to track a
-    #                  function without relying on line numbers.
+    # stable identity tracking fields
     body_hash      = Column(String(16), nullable=True, index=True)
     signature_hash = Column(String(16), nullable=True, index=True)
     canonical_id   = Column(String(16), nullable=True, index=True)
+    qualified_name = Column(String, nullable=True)
+    change_type    = Column(String(16), nullable=True)
+    similarity     = Column(Float, nullable=True)
+
+    __table_args__ = (
+        Index('ix_functions_file_path_qualified_name', 'file_path', 'qualified_name'),
+    )
 
     commit = relationship("Commit", back_populates="functions")
 

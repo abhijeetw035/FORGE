@@ -10,6 +10,7 @@ from database import SessionLocal
 from models import Repository, Commit, Function, FileMetrics
 from services.git_service import GitService
 from services.ast_parser import ASTParser
+from services.identity import FunctionIdentityTracker, match_functions
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -63,8 +64,10 @@ def process_repository(task_data: dict, db: Session):
         since_sha = repo.last_indexed_sha
         commits_data = git_service.get_new_commits(repo_path, since_sha=since_sha)
 
+        identity_tracker = FunctionIdentityTracker(repo_id, db, repo_path=repo_path)
         if since_sha:
             logger.info(f"Incremental run: {len(commits_data)} new commits since {since_sha[:7]}")
+            identity_tracker.seed_from_db(since_sha)
         else:
             logger.info(f"First run: {len(commits_data)} commits to index")
         
@@ -87,7 +90,8 @@ def process_repository(task_data: dict, db: Session):
                 
                 # Only parse the files that actually changed in this commit
                 process_commit_ast(commit, repo_path, db,
-                                   changed_files=commit_data.get('changed_files'))
+                                   changed_files=commit_data.get('changed_files'),
+                                   identity_tracker=identity_tracker)
 
                 # Checkpoint: record this SHA so a future re-queue only
                 # processes commits that come after it.
@@ -114,9 +118,10 @@ def process_repository(task_data: dict, db: Session):
         db.commit()
 
 def process_commit_ast(commit: Commit, repo_path: str, db: Session,
-                       changed_files: list = None):
+                       changed_files: list = None,
+                       identity_tracker: FunctionIdentityTracker = None):
     """
-    Parse functions from a single commit.
+    Parse functions from a single commit with stable canonical_id identity matching.
 
     ``changed_files`` — list of file paths that were actually modified in
     this commit (from git diff-tree).  When supplied we only parse those
@@ -128,8 +133,11 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session,
         repo = gitpython.Repo(repo_path)
         commit_obj = repo.commit(commit.sha)
 
+        if identity_tracker is None:
+            identity_tracker = FunctionIdentityTracker(commit.repository_id, db, repo_path=repo_path)
+
         # Build the set of files to parse
-        PARSEABLE_EXTS = {'.py', '.js', '.java', '.go'}
+        PARSEABLE_EXTS = {'.py', '.js', '.jsx', '.ts', '.tsx', '.java', '.go'}
 
         if changed_files is not None:
             # Efficient path: only look at files that changed in this commit
@@ -154,6 +162,7 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session,
                 and os.path.splitext(item.path)[1] in PARSEABLE_EXTS
             ]
 
+        new_funcs = []
         for file_path, blob in blobs:
             try:
                 source_code = blob.data_stream.read().decode('utf-8')
@@ -161,28 +170,71 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session,
                 
                 if tree:
                     _, ext = os.path.splitext(file_path)
-                    parser, language = ast_parser.get_parser(ext)
+                    res = ast_parser.get_parser(ext)
+                    if not res:
+                        continue
+                    parser, language = res
                     functions = ast_parser.extract_functions(tree, source_code, language)
-                    
                     for func_data in functions:
-                        function = Function(
-                            commit_id=commit.id,
-                            name=func_data['name'],
-                            file_path=file_path,
-                            start_line=func_data['start_line'],
-                            end_line=func_data['end_line'],
-                            complexity=func_data['complexity'],
-                            lines_of_code=func_data['lines_of_code'],
-                            parameters=func_data['parameters'],
-                            # stable cross-commit identity hashes
-                            body_hash=func_data.get('body_hash'),
-                            signature_hash=func_data.get('signature_hash'),
-                            canonical_id=func_data.get('canonical_id'),
-                        )
-                        db.add(function)
+                        func_data['file_path'] = file_path
+                        new_funcs.append(func_data)
             except Exception as e:
                 logger.debug(f"Could not parse {file_path}: {e}")
                 continue
+
+        # Get previous functions for comparison (re-parsing parent commit on demand if seeded from DB)
+        parent_sha = commit_obj.parents[0].hexsha if commit_obj.parents else None
+        prev_funcs = identity_tracker.get_prev_funcs(
+            changed_files,
+            ast_parser=ast_parser,
+            parent_sha=parent_sha
+        )
+
+        # Match new vs previous functions
+        matched_new, deleted_funcs = match_functions(new_funcs, prev_funcs)
+
+        # Store matched active functions
+        for func_data in matched_new:
+            function = Function(
+                commit_id=commit.id,
+                name=func_data['name'],
+                qualified_name=func_data.get('qualified_name'),
+                file_path=func_data['file_path'],
+                start_line=func_data.get('start_line'),
+                end_line=func_data.get('end_line'),
+                complexity=func_data.get('complexity'),
+                lines_of_code=func_data.get('lines_of_code'),
+                parameters=func_data.get('parameters'),
+                body_hash=func_data.get('body_hash'),
+                signature_hash=func_data.get('signature_hash'),
+                canonical_id=func_data.get('canonical_id'),
+                change_type=func_data.get('change_type'),
+                similarity=func_data.get('similarity'),
+            )
+            db.add(function)
+
+        # Store deleted functions
+        for func_data in deleted_funcs:
+            function = Function(
+                commit_id=commit.id,
+                name=func_data['name'],
+                qualified_name=func_data.get('qualified_name'),
+                file_path=func_data['file_path'],
+                start_line=func_data.get('start_line'),
+                end_line=func_data.get('end_line'),
+                complexity=func_data.get('complexity'),
+                lines_of_code=0,
+                parameters=func_data.get('parameters'),
+                body_hash=func_data.get('body_hash'),
+                signature_hash=func_data.get('signature_hash'),
+                canonical_id=func_data.get('canonical_id'),
+                change_type='deleted',
+                similarity=None,
+            )
+            db.add(function)
+
+        # Update identity tracker state for subsequent commits
+        identity_tracker.update_state(matched_new, deleted_funcs)
         
         commit.processed = True
         
@@ -199,7 +251,7 @@ def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session,
     walked and their deltas are ADDED to existing FileMetrics rows.  On a
     first run (since_sha=None) a full walk is done and rows are created fresh.
     """
-    from sqlalchemy import func as sqlfunc
+    from sqlalchemy import func as sqlfunc, or_
 
     incremental = since_sha is not None
 
@@ -213,7 +265,10 @@ def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session,
             sqlfunc.avg(Function.complexity).label('avg_complexity')
         )
         .join(Commit, Function.commit_id == Commit.id)
-        .filter(Commit.repository_id == repo_id)
+        .filter(
+            Commit.repository_id == repo_id,
+            or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+        )
         .group_by(Function.file_path)
         .all()
     )

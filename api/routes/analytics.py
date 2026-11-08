@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from database import get_db
 from models import Function, Commit, Repository, User, FileMetrics
 from dependencies import get_current_user
@@ -32,7 +32,10 @@ async def get_repository_heatmap(
                 func.count(Function.id).label('score')
             )
             .join(Commit, Function.commit_id == Commit.id)
-            .filter(Commit.repository_id == repo_id)
+            .filter(
+                Commit.repository_id == repo_id,
+                or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+            )
             .group_by(Function.file_path)
             .order_by(func.count(Function.id).desc())
             .limit(100)
@@ -78,7 +81,10 @@ async def get_repository_timeline(
                 func.sum(Function.end_line - Function.start_line).label('total_loc')
             )
             .join(Function, Commit.id == Function.commit_id)
-            .filter(Commit.repository_id == repo_id)
+            .filter(
+                Commit.repository_id == repo_id,
+                or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+            )
             .group_by(Commit.id, Commit.timestamp, Commit.sha, Commit.message)
             .order_by(Commit.timestamp.asc())
             .all()
@@ -140,8 +146,11 @@ async def get_repository_contributors(
                 entropy_score_col
             )
             .join(Function, Commit.id == Function.commit_id)
-            .filter(Commit.repository_id == repo_id)
-            .filter(Commit.author.isnot(None))
+            .filter(
+                Commit.repository_id == repo_id,
+                Commit.author.isnot(None),
+                or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+            )
             .group_by(Commit.author)
             .order_by(entropy_score_col.desc())
             .all()
@@ -214,7 +223,10 @@ async def get_risk_prediction(
                     func.count(func.distinct(Commit.author)).label('author_count')
                 )
                 .join(Commit, Function.commit_id == Commit.id)
-                .filter(Commit.repository_id == repo_id)
+                .filter(
+                    Commit.repository_id == repo_id,
+                    or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+                )
                 .group_by(Function.file_path)
                 .all()
             )
@@ -283,6 +295,9 @@ async def get_function_evolution(
                 Function.signature_hash,
                 Function.body_hash,
                 Function.name,
+                Function.qualified_name,
+                Function.change_type,
+                Function.similarity,
                 Function.file_path,
                 Function.start_line,
                 Function.end_line,
@@ -297,7 +312,7 @@ async def get_function_evolution(
                 Commit.repository_id == repo_id,
                 Function.canonical_id.isnot(None),
             )
-            .order_by(Commit.timestamp.asc())
+            .order_by(Commit.timestamp.asc(), Function.id.asc())
             .all()
         )
 
@@ -310,6 +325,9 @@ async def get_function_evolution(
                 'signature_hash':   r.signature_hash,
                 'body_hash':        r.body_hash,
                 'name':             r.name,
+                'qualified_name':   r.qualified_name or r.name,
+                'change_type':      r.change_type,
+                'similarity':       r.similarity,
                 'file_path':        r.file_path,
                 'start_line':       r.start_line,
                 'end_line':         r.end_line,
@@ -322,7 +340,7 @@ async def get_function_evolution(
             for r in rows
         ]
 
-        # ── inline get_function_evolution logic (no git I/O needed) ──────
+        # ── inline get_function_evolution logic ──────
         by_cid: dict = defaultdict(list)
         for fn in db_functions:
             cid = fn.get('canonical_id')
@@ -330,41 +348,60 @@ async def get_function_evolution(
                 by_cid[cid].append(fn)
 
         evolution = []
-        for cid, versions in by_cid.items():
-            versions_sorted = sorted(
-                versions,
+        for cid, all_rows in by_cid.items():
+            all_sorted = sorted(
+                all_rows,
                 key=lambda f: f.get('commit_timestamp') or datetime.min
             )
-            first = versions_sorted[0]
-            last  = versions_sorted[-1]
+            first_row = all_sorted[0]
+            last_row  = all_sorted[-1]
 
-            paths = [v['file_path'] for v in versions_sorted]
-            was_moved = len(set(paths)) > 1
+            # Detect moves: more than one distinct file_path
+            paths = {v['file_path'] for v in all_sorted}
+            was_moved = len(paths) > 1
 
-            sigs = [v.get('signature_hash') for v in versions_sorted if v.get('signature_hash')]
-            was_renamed = len(set(sigs)) > 1
+            # Detect renames: more than one distinct qualified_name (fall back to name)
+            names = {v.get('qualified_name') or v.get('name') for v in all_sorted if (v.get('qualified_name') or v.get('name'))}
+            was_renamed = len(names) > 1
 
-            complexities = [v.get('complexity') or 0 for v in versions_sorted]
-            if len(complexities) >= 2:
-                delta = complexities[-1] - complexities[0]
-                trend = 'increasing' if delta > 0 else ('decreasing' if delta < 0 else 'stable')
-            else:
-                delta, trend = 0, 'stable'
+            # A version = a row where body_hash OR signature_hash differs from previous row, or lifecycle change (move/rename/deleted)
+            versions = []
+            prev_body_hash = None
+            prev_sig_hash = None
+            for idx, r in enumerate(all_sorted):
+                curr_body_hash = r.get('body_hash')
+                curr_sig_hash = r.get('signature_hash')
+                ctype = r.get('change_type')
+                if (idx == 0 or
+                    curr_body_hash != prev_body_hash or
+                    curr_sig_hash != prev_sig_hash or
+                    ctype in ['move', 'rename', 'deleted']):
+                    versions.append(r)
+                    prev_body_hash = curr_body_hash
+                    prev_sig_hash = curr_sig_hash
+
+            if not versions:
+                versions = [last_row]
+
+            # Complexity trend across versions
+            delta = versions[-1]['complexity'] - versions[0]['complexity']
+            trend = 'increasing' if delta > 0 else ('decreasing' if delta < 0 else 'stable')
 
             evolution.append({
                 'canonical_id':     cid,
-                'name':             last.get('name', ''),
-                'file_path':        last.get('file_path', ''),
-                'first_seen_sha':   first.get('commit_sha', ''),
-                'last_seen_sha':    last.get('commit_sha', ''),
-                'first_seen_ts':    first.get('commit_timestamp'),
-                'last_seen_ts':     last.get('commit_timestamp'),
-                'commit_count':     len(versions_sorted),
+                'name':             last_row.get('name', ''),
+                'qualified_name':   last_row.get('qualified_name', ''),
+                'file_path':        last_row.get('file_path', ''),
+                'first_seen_sha':   first_row.get('commit_sha', ''),
+                'last_seen_sha':    last_row.get('commit_sha', ''),
+                'first_seen_ts':    first_row.get('commit_timestamp'),
+                'last_seen_ts':     last_row.get('commit_timestamp'),
+                'commit_count':     len(all_sorted),
                 'was_moved':        was_moved,
                 'was_renamed':      was_renamed,
                 'complexity_trend': trend,
                 'complexity_delta': delta,
-                'versions':         versions_sorted,
+                'versions':         versions,
             })
 
         evolution.sort(key=lambda r: r['commit_count'], reverse=True)
@@ -381,6 +418,9 @@ async def get_function_evolution(
                     'timestamp':      ts.isoformat() if ts else None,
                     'file_path':      v.get('file_path', ''),
                     'name':           v.get('name', ''),
+                    'qualified_name': v.get('qualified_name', ''),
+                    'change_type':    v.get('change_type'),
+                    'similarity':     v.get('similarity'),
                     'complexity':     v.get('complexity', 0),
                     'start_line':     v.get('start_line', 0),
                     'end_line':       v.get('end_line', 0),
@@ -391,6 +431,7 @@ async def get_function_evolution(
             return {
                 'canonical_id':     entry['canonical_id'],
                 'name':             entry['name'],
+                'qualified_name':   entry.get('qualified_name'),
                 'file_path':        entry['file_path'],
                 'first_seen_sha':   (entry.get('first_seen_sha') or '')[:7],
                 'last_seen_sha':    (entry.get('last_seen_sha') or '')[:7],

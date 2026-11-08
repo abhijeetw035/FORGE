@@ -100,7 +100,7 @@ graph LR
 
 1. **Clone or pull delta** — On first run the repo is cloned; subsequent runs use `git log <last_sha>..HEAD` to fetch only new commits
 2. **Changed-files-only AST parsing** — Each commit's diff-tree limits Tree-sitter parsing to touched files (O(changed) instead of O(all))
-3. **SHA-256 function identity hashing** — `canonical_id = SHA-256(signature_hash + ":" + body_hash)[:16]`; a function's identity survives moves and renames
+3. **Stable function identity tracking** — `canonical_id` is assigned once and carried forward across commits; token-based AST normalization and token similarity matching (threshold 0.8) track edits, moves, and renames accurately
 4. **9-feature file metrics** — Churn, complexity, author count, lines added/deleted, commit frequency, recent churn, ownership entropy (Shannon), dependency count
 5. **Isolation Forest anomaly detection** — `n_estimators=200`, `max_features=0.8`; files that deviate across all 9 axes get a high anomaly score
 6. **Redis Streams task delivery** — `XADD` enqueues analysis tasks; `XREADGROUP`/`XACK` guarantee each task is processed at least once; `XAUTOCLAIM` re-delivers tasks from crashed workers after 60 s
@@ -137,16 +137,22 @@ The dashboard presents these scores under the **AI Risk Forecast (The Oracle)** 
 
 ---
 
-### 2. Function Identity — surviving moves and renames
+### 2. Function Identity — stable tracking across edits, moves, and renames
 
-**Problem:** Functions were tracked by file path + line number. Any rename, move, or reformat broke continuity and produced duplicate records.
+**Problem:** Previously, functions relied on a compound hash `canonical_id = SHA-256(signature_hash + ":" + body_hash)[:16]`. Any edit to a function's body produced a new `canonical_id`, causing evolution timelines to fragment into single-version records and making `was_renamed` impossible to be true. Furthermore, regex-based normalization wrongly stripped floor division (`//`) and strings containing `#` or `//`, while failing to strip block comments (`/* */`) or Python docstrings.
 
-**Fix:** Every function now has a `canonical_id = SHA-256(signature_hash + ":" + body_hash)[:16]`.
+**Fix:** Completely redesigned function identity architecture:
+- **`body_hash` (Version Fingerprint):** Generated via AST token-based normalization. Tree-sitter recursively walks the body AST, skipping comment nodes and Python docstrings, and collecting leaf tokens joined by a single space. Real code operators like `//` and string literals (`"https://..."`, `"#fff"`) are preserved.
+- **`qualified_name`:** Resolves enclosing class names and Go receiver types (e.g., `Parser.__init__`, `Server.Start`), eliminating collisions between methods with the same name.
+- **`canonical_id` (Stable Identity):** Assigned once when a function first appears, then carried forward across commits.
+- **5-Step Matching Algorithm:**
+  1. **Exact match on `(file_path, qualified_name)`**: Reuses `canonical_id`. If `body_hash` matches $\implies$ `change_type = "unchanged"`; otherwise $\implies$ `change_type = "edit"`.
+  2. **Exact `body_hash` match on disappeared function**: Reuses `canonical_id`. `change_type = "rename"` if qualified_name changed (preferred), or `"move"` if file_path changed.
+  3. **Token similarity matching**: For remaining unmatched functions, computes `difflib.SequenceMatcher.ratio()` on body tokens (excluding signature header). Pairs with similarity $\ge 0.8$ (`SIMILARITY_THRESHOLD`) reuse `canonical_id` with `change_type` set to `"rename"`, `"move"`, or `"edit"`. Token-count ratios $> 2\times$ are skipped for speed.
+  4. **New functions**: Assigned a fresh `uuid4().hex[:16]` with `change_type = "new"`.
+  5. **Disappeared functions**: Recorded as `change_type = "deleted"`.
 
-- **`signature_hash`** — `SHA-256("<lang>:<name>(<params>)")` — changes only on signature edits
-- **`body_hash`** — `SHA-256(normalised_body)` — comments stripped, whitespace collapsed; changes only on semantic edits
-
-A function moved across files, or reformatted, keeps the same `canonical_id`. An intentional rewrite gets a new one. The **Function Evolution** page in the dashboard groups all versions of a function across commits and highlights moves, renames, and growing complexity.
+The **Function Evolution** page in the dashboard groups all versions of a function by `canonical_id` across commits and highlights moves, renames (`was_renamed = true`), and complexity trends.
 
 ---
 
@@ -378,6 +384,7 @@ forge/
 | 003 | `file_metrics` table (9 features) |
 | 004 | `body_hash`, `signature_hash`, `canonical_id` on functions |
 | 005 | `last_indexed_sha` on repositories |
+| 006 | Stable function identity tracking (`qualified_name`, `change_type`, `similarity`, index) |
 
 ### Tech Stack
 
