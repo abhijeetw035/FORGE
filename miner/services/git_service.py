@@ -174,22 +174,34 @@ class GitService:
         # Chronological order (oldest first) so last_indexed_sha checkpoints correctly.
         return list(reversed(commits))
 
-    def get_head_files(self, repo_path: str) -> Dict[str, int]:
+    def get_head_files(self, repo_path: str) -> Dict[str, Dict[str, int]]:
         """
-        {path: dependency_count} for every file that exists at HEAD.
-        Files not in this map were deleted and must not be risk-scored.
+        {path: {"dependency_count": n, "loc": n}} for every file that exists
+        at HEAD. Files not in this map were deleted and must not be risk-scored.
+        ``loc`` is the number of non-blank lines (0 for binary files).
         """
         repo = git.Repo(repo_path)
-        files: Dict[str, int] = {}
+        files: Dict[str, Dict[str, int]] = {}
         for item in repo.head.commit.tree.traverse():
             if item.type != 'blob':
                 continue
             try:
-                source = item.data_stream.read().decode('utf-8', errors='ignore')
-                files[item.path] = self._count_dependencies(source, item.path)
+                raw = item.data_stream.read()
+                source = raw.decode('utf-8', errors='ignore')
+                files[item.path] = {
+                    'dependency_count': self._count_dependencies(source, item.path),
+                    'loc': self.count_loc(raw),
+                }
             except Exception:
-                files[item.path] = 0
+                files[item.path] = {'dependency_count': 0, 'loc': 0}
         return files
+
+    @staticmethod
+    def count_loc(raw: bytes) -> int:
+        """Non-blank lines (same as ``grep -cv '^\\s*$'``); 0 for binary content."""
+        if b'\0' in raw[:8192]:
+            return 0
+        return sum(1 for line in raw.splitlines() if line.strip())
 
     def get_file_at_commit(self, repo_path: str, commit_sha: str, file_path: str) -> Optional[str]:
         try:

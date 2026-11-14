@@ -25,33 +25,25 @@ async def get_repository_heatmap(
         if not repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
-        heatmap_data = (
+        # Real per-file numbers from file_metrics (same source as the risk page):
+        #   score = commits that touched the file (churn)
+        #   size  = non-blank lines of the file at HEAD (loc)
+        rows = (
             db.query(
-                Function.file_path.label('name'),
-                func.sum(Function.end_line - Function.start_line).label('size'),
-                func.count(Function.id).label('score')
+                FileMetrics.file_path.label('name'),
+                FileMetrics.loc.label('size'),
+                FileMetrics.churn.label('score'),
             )
-            .join(Commit, Function.commit_id == Commit.id)
-            .filter(
-                Commit.repository_id == repo_id,
-                or_(Function.change_type.is_(None), Function.change_type != 'deleted')
-            )
-            .group_by(Function.file_path)
-            .order_by(func.count(Function.id).desc())
+            .filter(FileMetrics.repository_id == repo_id, FileMetrics.loc > 0)
+            .order_by(FileMetrics.churn.desc(), FileMetrics.file_path.asc())
             .limit(100)
             .all()
         )
-        
-        result = [
-            {
-                "name": row.name,
-                "size": int(row.size) if row.size else 0,
-                "score": int(row.score) if row.score else 0
-            }
-            for row in heatmap_data
+
+        return [
+            {"name": r.name, "size": int(r.size or 0), "score": int(r.score or 0)}
+            for r in rows
         ]
-        
-        return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -258,6 +250,7 @@ async def get_risk_prediction(
                     'ownership_entropy': row.ownership_entropy or 0.0,
                     'dependency_count':  row.dependency_count  or 0,
                     'complexity':        row.avg_complexity    or 0.0,
+                    'loc':               row.loc               or 0,
                 }
                 for row in fm_rows
             ]

@@ -2,7 +2,9 @@ import { Repository } from '@/types';
 
 export interface HeatmapData {
   name: string;
+  /** non-blank lines of the file at HEAD */
   size: number;
+  /** number of commits that touched the file */
   score: number;
 }
 
@@ -45,6 +47,8 @@ export interface RiskPredictionData {
   dependency_count: number;
   // AST feature
   complexity: number;
+  // size: non-blank lines of the file at HEAD
+  loc?: number;
 }
 
 export interface User {

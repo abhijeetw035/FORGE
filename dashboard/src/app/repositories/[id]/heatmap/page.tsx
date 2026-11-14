@@ -127,7 +127,7 @@ export default function HeatmapPage({ params }: PageProps) {
       return [...filtered].sort((a, b) => b.complexity - a.complexity);
     }
     if (quickFilter === 'large') {
-      return [...filtered].sort((a, b) => b.complexity * 10 - a.complexity * 10);
+      return [...filtered].sort((a, b) => (b.loc ?? 0) - (a.loc ?? 0));
     }
 
     return [...filtered].sort((a, b) => {
@@ -284,7 +284,7 @@ export default function HeatmapPage({ params }: PageProps) {
                           : 'hover:bg-zinc-800/40'}`}
                     >
                       <td className="py-2.5 px-3 font-medium text-zinc-200 max-w-[200px] truncate">{shortName(f.file_path)}</td>
-                      <td className="py-2.5 px-3 text-right text-zinc-400">{Math.round(f.complexity * 10)}</td>
+                      <td className="py-2.5 px-3 text-right text-zinc-400">{(f.loc ?? 0).toLocaleString()}</td>
                       <td className="py-2.5 px-3 text-right text-zinc-300">{f.churn} edits</td>
                       <td className="py-2.5 px-3 text-right text-zinc-300">{f.complexity.toFixed(1)}</td>
                       <td className="py-2.5 px-3 text-right text-zinc-300">{f.author_count}</td>
@@ -336,7 +336,7 @@ export default function HeatmapPage({ params }: PageProps) {
                     Risk: {riskBadge(selected.risk_score)}
                   </span>
                   <span className="text-xs px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-medium">
-                    LOC: {Math.round(selected.complexity * 10)}
+                    LOC: {(selected.loc ?? 0).toLocaleString()}
                   </span>
                   <span className="text-xs px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-medium">
                     Complexity: {selected.complexity.toFixed(1)}
@@ -447,7 +447,7 @@ export default function HeatmapPage({ params }: PageProps) {
                 <h3 className="text-lg font-bold text-zinc-100 truncate">{shortName(selected.file_path)}</h3>
               </div>
               <p className="text-xs text-zinc-500 truncate pl-10">{selected.file_path}</p>
-              <p className="text-sm text-zinc-400 mt-1 pl-10">Total LOC: {Math.round(selected.complexity * 10)}</p>
+              <p className="text-sm text-zinc-400 mt-1 pl-10">Total LOC: {(selected.loc ?? 0).toLocaleString()}</p>
             </div>
 
             {/* Stats */}

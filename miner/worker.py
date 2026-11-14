@@ -455,8 +455,9 @@ def recompute_file_metrics(db: Session, repo_id: int, head_files: dict) -> int:
     """
     Rebuild file_metrics for a repo from file_changes + current functions.
 
-    ``head_files`` maps path -> dependency_count for files that exist at HEAD;
-    files deleted since are excluded from risk scoring.
+    ``head_files`` maps path -> {"dependency_count", "loc"} for files that exist
+    at HEAD (a bare int is accepted as just the dependency count); files
+    deleted since are excluded from risk scoring.
     """
     rows = db.execute(_FILE_METRICS_SQL, {'repo': repo_id}).mappings().all()
     complexity = {
@@ -471,6 +472,9 @@ def recompute_file_metrics(db: Session, repo_id: int, head_files: dict) -> int:
             continue
         churn = int(r['churn'])
         age = max(float(r['file_age_days'] or 0.0), 0.0)
+        info = head_files[path]
+        if not isinstance(info, dict):
+            info = {'dependency_count': info}
         new_rows.append({
             'repository_id':     repo_id,
             'file_path':         path,
@@ -482,7 +486,8 @@ def recompute_file_metrics(db: Session, repo_id: int, head_files: dict) -> int:
             'recent_churn':      int(r['recent_churn']),
             'author_count':      int(r['author_count']),
             'ownership_entropy': round(float(r['ownership_entropy']), 4),
-            'dependency_count':  head_files.get(path, 0),
+            'dependency_count':  info.get('dependency_count', 0),
+            'loc':               info.get('loc', 0),
             'avg_complexity':    round(complexity.get(path, 0.0), 4),
         })
 

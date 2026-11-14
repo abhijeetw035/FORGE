@@ -290,3 +290,32 @@ def test_backfill_fills_commits_recorded_before_file_changes_existed(db):
         assert m.churn == 2 and m.author_count == 2 and m.ownership_entropy == pytest.approx(1.0, abs=1e-3)
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# ── loc (non-blank lines at HEAD) ────────────────────────────────────────────
+
+def test_count_loc_ignores_blank_and_whitespace_only_lines_and_binary():
+    assert GitService.count_loc(b"a\n\n  \n\t\nb\nc") == 3
+    assert GitService.count_loc(b"") == 0
+    assert GitService.count_loc(b"\x89PNG\x00\x01binary\n") == 0
+
+
+def test_head_files_report_loc_matching_grep_cv_blank_lines():
+    d = _git_repo([("A", "a@x.com", {"gateway.go": "package x\n\nfunc a() {}\n   \nfunc b() {}\n"})])
+    try:
+        head = GitService(tempfile.mkdtemp()).get_head_files(d)
+        assert head["gateway.go"]["loc"] == 3
+        # same definition as: grep -cv '^\s*$' gateway.go
+        assert head["gateway.go"]["loc"] == sum(
+            1 for l in open(os.path.join(d, "gateway.go")) if l.strip())
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def test_recompute_stores_loc_from_head_files(db):
+    repo = db.new_repo()
+    add_change(db, repo, "f.py", "a@x.com")
+    add_change(db, repo, "f.py", "a@x.com")
+    worker.recompute_file_metrics(db, repo.id, {"f.py": {"dependency_count": 2, "loc": 762}})
+    m = metrics(db, repo)["f.py"]
+    assert (m.loc, m.dependency_count, m.churn) == (762, 2, 2)

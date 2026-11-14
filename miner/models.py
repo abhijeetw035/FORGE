@@ -101,6 +101,9 @@ class FileMetrics(Base):
     # --- AST-derived (populated from Function records) ---
     avg_complexity     = Column(Float,   default=0.0)
 
+    # --- size ---
+    loc                = Column(Integer, nullable=False, default=0, server_default='0')  # non-blank lines at HEAD
+
     updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     repository = relationship("Repository")

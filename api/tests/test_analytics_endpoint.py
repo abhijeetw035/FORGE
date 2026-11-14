@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi.testclient import TestClient
 from main import app
 from database import SessionLocal
-from models import User, Repository, Commit, Function
+from models import User, Repository, Commit, Function, FileMetrics
 from dependencies import get_current_user
 
 
@@ -52,7 +52,10 @@ def test_setup(db_session):
         )
     ).delete(synchronize_session=False)
     db_session.query(Commit).filter(Commit.repository_id == repo.id).delete(synchronize_session=False)
-    db_session.query(Repository).filter(Repository.id == repo.id).delete(synchronize_session=False)
+    # Also remove any extra repositories a test created for this user, and their metrics
+    extra_ids = [r.id for r in db_session.query(Repository.id).filter(Repository.owner_id == user.id)]
+    db_session.query(FileMetrics).filter(FileMetrics.repository_id.in_(extra_ids)).delete(synchronize_session=False)
+    db_session.query(Repository).filter(Repository.owner_id == user.id).delete(synchronize_session=False)
     db_session.query(User).filter(User.id == user.id).delete(synchronize_session=False)
     db_session.commit()
 
@@ -254,13 +257,15 @@ def test_deleted_rows_excluded_from_analytics(test_setup):
     db.add_all([f1_c2, f_del])
     db.commit()
 
-    # 1. Test Heatmap: count must be 3 active function rows across commits, NOT 4 (deleted excluded)
+    # 1. Test Heatmap: reads file_metrics, NOT function rows. The file has 3 function
+    #    rows but was touched by only 2 commits and has 40 real lines.
+    db.add(FileMetrics(repository_id=repo.id, file_path="service.py", churn=2, loc=40))
+    db.commit()
     resp_heat = client.get(f"/analytics/repositories/{repo.id}/heatmap")
     assert resp_heat.status_code == 200
     heat_data = resp_heat.json()
     assert len(heat_data) == 1
-    assert heat_data[0]["name"] == "service.py"
-    assert heat_data[0]["score"] == 3  # NOT 4
+    assert heat_data[0] == {"name": "service.py", "size": 40, "score": 2}  # NOT 3 function rows
 
     # 2. Test Timeline: commit 2 must count 1 active function, NOT 2 (deleted excluded)
     resp_time = client.get(f"/analytics/repositories/{repo.id}/timeline")
@@ -373,3 +378,42 @@ def test_snapshot_timeline_small_file_does_not_skew_average(test_setup):
         f"Adding one small file moved avg complexity by {delta:.2f} — too much! "
         f"(was {c1_stat['avg_complexity']}, now {c2_stat['avg_complexity']})"
     )
+
+
+def test_heatmap_uses_real_churn_and_loc_ordered_and_filtered(test_setup):
+    """score = commits touching the file, size = real LOC; empty/deleted files excluded."""
+    db, repo = test_setup["db"], test_setup["repo"]
+    client = TestClient(app)
+
+    # Many function rows must NOT inflate churn/size.
+    c = Commit(repository_id=repo.id, sha="dd" * 20, author="A", message="m",
+               timestamp=datetime(2026, 3, 1))
+    db.add(c)
+    db.flush()
+    for i in range(104):
+        db.add(Function(commit_id=c.id, name=f"f{i}", qualified_name=f"f{i}", file_path="gateway.go",
+                        start_line=1, end_line=500, complexity=1, canonical_id=f"g{i}", change_type="new"))
+    db.add_all([
+        FileMetrics(repository_id=repo.id, file_path="gateway.go", churn=8, loc=762),
+        FileMetrics(repository_id=repo.id, file_path="busy.py", churn=30, loc=120),
+        FileMetrics(repository_id=repo.id, file_path="empty.txt", churn=99, loc=0),   # no lines -> hidden
+    ])
+    db.commit()
+
+    data = client.get(f"/analytics/repositories/{repo.id}/heatmap").json()
+    assert [d["name"] for d in data] == ["busy.py", "gateway.go"]            # churn desc, loc=0 dropped
+    gw = next(d for d in data if d["name"] == "gateway.go")
+    assert (gw["score"], gw["size"]) == (8, 762)                              # not 104 / summed spans
+
+
+def test_heatmap_does_not_leak_other_repositories(test_setup):
+    db, repo = test_setup["db"], test_setup["repo"]
+    other = Repository(url="https://github.com/o/other", name="other", owner="o",
+                       owner_id=repo.owner_id, status="completed")
+    db.add(other)
+    db.commit()
+    db.add_all([FileMetrics(repository_id=other.id, file_path="x.py", churn=5, loc=10),
+                FileMetrics(repository_id=repo.id, file_path="mine.py", churn=1, loc=3)])
+    db.commit()
+    data = TestClient(app).get(f"/analytics/repositories/{repo.id}/heatmap").json()
+    assert [d["name"] for d in data] == ["mine.py"]
