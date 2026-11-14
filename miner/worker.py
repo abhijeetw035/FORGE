@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import SessionLocal, engine
 from models import Repository, Commit, Function, FileMetrics, FileChange
-from services.git_service import GitService
+from services.git_service import GitService, InvalidRepositoryURL
 from services.ast_parser import ASTParser
 from services.identity import FunctionIdentityTracker, match_functions
 from queue_utils import (
@@ -44,12 +44,16 @@ _PERMANENT_CLONE_MARKERS = (
     'does not appear to be a git repository', 'unable to access',
     # git could not prompt for credentials (no TTY): private/nonexistent repo
     'could not read password', 'terminal prompts disabled', 'no such device or address',
+    # redirects are disabled on purpose (SSRF); a renamed/moved repo must be re-added
+    'unable to update url base from redirection', 'redirect',
     'invalid url', 'permission denied', 'returned error: 40',
 )
 
 
 def classify_clone_error(exc: Exception) -> Exception:
     """Return PermanentError for failures retrying cannot fix, else the original."""
+    if isinstance(exc, InvalidRepositoryURL):
+        return PermanentError(str(exc))
     msg = str(exc).lower()
     if any(m in msg for m in _PERMANENT_CLONE_MARKERS):
         # "unable to access" also covers transient network errors; keep those retryable

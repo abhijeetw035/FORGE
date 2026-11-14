@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+from utils.url_validation import validate_repo_url
 from datetime import datetime
 from typing import Optional, List
 
@@ -29,6 +30,12 @@ class TokenData(BaseModel):
 # Repository Schemas
 class RepositoryCreate(BaseModel):
     url: str
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        # Allowlist (SSRF): only https://<allowed host>/owner/repo
+        return validate_repo_url(v)
 
 class RepositoryResponse(BaseModel):
     id: int

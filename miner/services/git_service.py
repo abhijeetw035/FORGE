@@ -8,6 +8,9 @@ from datetime import datetime, timezone
 from typing import Optional, Dict, List, Any
 
 import git
+from urllib.parse import urlparse
+
+from services.url_validation import validate_repo_url
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +18,26 @@ logger = logging.getLogger(__name__)
 EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
 
 
+class InvalidRepositoryURL(ValueError):
+    """The URL failed the allowlist; retrying cannot help."""
+
+
+# git itself is restricted too: https only, never prompt, never follow redirects
+# (an allowed host could otherwise redirect git to an internal address), and
+# never read local paths via the file protocol.
+_SAFE_GIT_ENV = {"GIT_ALLOW_PROTOCOL": "https", "GIT_TERMINAL_PROMPT": "0"}
+_SAFE_CLONE_OPTIONS = ["-c protocol.file.allow=never", "-c http.followRedirects=false"]
+
+
 class GitService:
-    def __init__(self, storage_path: str, github_token: Optional[str] = None):
+    def __init__(self, storage_path: str, github_token: Optional[str] = None, strict: bool = True):
+        """
+        ``strict`` (default) enforces the URL allowlist and https-only git.
+        It exists to be switched off ONLY by tests that clone local fixture repos.
+        """
         self.storage_path = storage_path
         self.github_token = github_token
+        self.strict = strict
         os.makedirs(storage_path, exist_ok=True)
 
     def clone_repository(self, url: str, repo_id: int) -> str:
@@ -26,16 +45,25 @@ class GitService:
         Return a local, up-to-date working copy of the repo.
 
         First run: clone. Re-analysis: fetch the remote's HEAD and move to it,
-        so incremental runs actually see new upstream commits (previously an
-        existing clone was returned as-is and never updated). A corrupt or
-        half-cloned directory (e.g. from a failed attempt) is removed and
-        cloned again.
+        so incremental runs actually see new upstream commits. A corrupt or
+        half-cloned directory is removed and cloned again.
+
+        The URL is validated again here (the API already did): this is the last
+        line of defence before user input reaches git.
         """
+        if self.strict:
+            try:
+                url = validate_repo_url(url)
+            except ValueError as e:
+                raise InvalidRepositoryURL(f"Repository URL not allowed: {e}")
+
         repo_dir = os.path.join(self.storage_path, f"repo_{repo_id}")
 
         clone_url = url
-        if self.github_token and 'github.com' in url:
-            clone_url = url.replace('https://', f'https://{self.github_token}@')
+        if self.github_token and (urlparse(url).hostname or "").lower() == 'github.com':
+            clone_url = url.replace('https://', f'https://{self.github_token}@', 1)
+
+        git_env = dict(_SAFE_GIT_ENV) if self.strict else {}
 
         if os.path.exists(repo_dir):
             try:
@@ -49,11 +77,17 @@ class GitService:
                 # fast-forward to the remote HEAD. reset --hard also handles
                 # force-pushes; the clone is ours, nothing local to preserve.
                 repo.remotes.origin.set_url(clone_url)
-                repo.git.fetch('origin', 'HEAD')
+                with repo.git.custom_environment(**git_env):
+                    repo.git.fetch('origin', 'HEAD')
                 repo.git.reset('--hard', 'FETCH_HEAD')
                 return repo_dir
 
-        git.Repo.clone_from(clone_url, repo_dir)
+        if self.strict:
+            git.Repo.clone_from(clone_url, repo_dir,
+                                env={**os.environ, **git_env},
+                                multi_options=_SAFE_CLONE_OPTIONS)
+        else:
+            git.Repo.clone_from(clone_url, repo_dir)
         return repo_dir
 
     def get_commits(self, repo_path: str):

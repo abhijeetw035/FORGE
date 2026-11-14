@@ -231,6 +231,9 @@ def test_crash_midway_then_resume_matches_clean_run(db, monkeypatch):
         n, e = authors[i % len(authors)]
         commits.append((n, e, {f"f{i % 3}.py": "".join(f"def g{j}():\n    return {j}\n" for j in range(i + 1))}))
     d = _git_repo(commits)
+    # Local fixture repo: the production URL allowlist (strict) would refuse a file path.
+    monkeypatch.setattr(worker, "git_service",
+                        GitService(os.getenv('STORAGE_PATH', '/storage'), strict=False))
 
     # The task's url (what gets cloned) is independent of the DB row's unique url.
     clean = db.new_repo()

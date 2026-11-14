@@ -22,7 +22,9 @@ def remote_and_service():
     remote_dir, storage = tempfile.mkdtemp(), tempfile.mkdtemp()
     remote = git.Repo.init(remote_dir)
     _commit(remote, "a.py", "x=1\n")
-    yield remote, GitService(storage), remote_dir
+    # strict=False: these tests clone local fixture repos (file paths), which the
+    # production allowlist rightly refuses. URL security is tested in test_url_security.py.
+    yield remote, GitService(storage, strict=False), remote_dir
     shutil.rmtree(remote_dir, ignore_errors=True)
     shutil.rmtree(storage, ignore_errors=True)
 

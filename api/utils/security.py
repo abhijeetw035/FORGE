@@ -10,7 +10,21 @@ pwd_context = CryptContext(
     bcrypt__ident="2b"
 )
 
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+_INSECURE_DEFAULT_KEY = "your-secret-key-change-this-in-production"
+
+
+def _load_secret_key() -> str:
+    """Fail fast: never sign login tokens with a missing, default or weak key."""
+    key = os.getenv("SECRET_KEY", "")
+    if not key or key == _INSECURE_DEFAULT_KEY or key.upper().startswith("CHANGE_ME") or len(key) < 32:
+        raise RuntimeError(
+            "SECRET_KEY must be set to a random value of at least 32 characters "
+            "(generate one with: openssl rand -hex 32)"
+        )
+    return key
+
+
+SECRET_KEY = _load_secret_key()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
