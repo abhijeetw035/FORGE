@@ -4,11 +4,12 @@ import logging
 import json
 import os
 import socket
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from database import SessionLocal, engine
-from models import Repository, Commit, Function, FileMetrics
+from models import Repository, Commit, Function, FileMetrics, FileChange
 from services.git_service import GitService
 from services.ast_parser import ASTParser
 from services.identity import FunctionIdentityTracker, match_functions
@@ -157,44 +158,18 @@ def _run_pipeline(task_data: dict, db: Session) -> None:
             logger.info(f"First run: {len(commits_data)} commits to index")
 
         for commit_data in commits_data:
-            # Idempotent insert: unique (repository_id, sha) + ON CONFLICT DO NOTHING.
-            # If the commit already exists (duplicate run), skip it.
-            commit_id = db.execute(
-                pg_insert(Commit)
-                .values(
-                    repository_id=repo_id,
-                    sha=commit_data['sha'],
-                    author=commit_data['author'],
-                    message=commit_data['message'],
-                    timestamp=commit_data['timestamp'],
-                    processed=False,
-                )
-                .on_conflict_do_nothing(constraint='uq_commits_repository_sha')
-                .returning(Commit.id)
-            ).scalar()
-
-            if commit_id is not None:
-                commit = db.get(Commit, commit_id)
-
-                # Only parse the files that actually changed in this commit
-                process_commit_ast(commit, repo_path, db,
-                                   changed_files=commit_data.get('changed_files'),
-                                   identity_tracker=identity_tracker)
-
-                # Checkpoint: record this SHA so a future re-queue only
-                # processes commits that come after it.
-                repo.last_indexed_sha = commit_data['sha']
-                db.commit()
+            _index_commit(db, repo, repo_id, repo_path, commit_data, identity_tracker)
 
         db.commit()
 
-        logger.info(f"Computing rich file metrics for repo {repo_id}...")
-        try:
-            # Pass since_sha so only the delta commits are walked for metrics
-            compute_and_store_file_metrics(repo_id, repo_path, db, since_sha=since_sha)
-        except Exception as metric_err:
-            db.rollback()
-            logger.warning(f"File-metrics computation failed (non-fatal): {metric_err}")
+        # Commits indexed before file_changes existed (or by a run that predates
+        # it) get their raw facts backfilled, so metrics are always complete.
+        backfill_file_changes(repo_id, repo_path, db)
+
+        # Exact recompute from file_changes: nothing is merged with old values,
+        # so a crash/resume can never leave history missing.
+        logger.info(f"Recomputing file metrics for repo {repo_id}...")
+        recompute_file_metrics(db, repo_id, git_service.get_head_files(repo_path))
 
         repo.status = "completed"
         repo.failed_reason = None
@@ -327,85 +302,197 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session,
         logger.error(f"Error processing AST for commit {commit.sha}: {e}")
 
 
-def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session,
-                                   since_sha: str = None):
+def _index_commit(db: Session, repo: Repository, repo_id: int, repo_path: str, commit_data: dict,
+                  identity_tracker: FunctionIdentityTracker) -> bool:
     """
-    Compute rich per-file metrics via GitService and store/update FileMetrics rows.
+    Index ONE commit atomically: the commit row, its functions, its file_changes
+    facts and the last_indexed_sha checkpoint are saved by a single db.commit().
+    Either all of it is stored or none of it, so a crash can never lose history.
 
-    When ``since_sha`` is provided (incremental run) only the new commits are
-    walked and their deltas are ADDED to existing FileMetrics rows.  On a
-    first run (since_sha=None) a full walk is done and rows are created fresh.
+    Idempotent: returns False (no-op) if the commit already exists.
     """
-    from sqlalchemy import func as sqlfunc, or_
-
-    incremental = since_sha is not None
-
-    # 1. Get git-history metrics (full or delta)
-    metrics_list = git_service.get_file_metrics(repo_path, since_sha=since_sha)
-
-    # 2. Compute avg_complexity per file from stored Function records
-    complexity_rows = (
-        db.query(
-            Function.file_path,
-            sqlfunc.avg(Function.complexity).label('avg_complexity')
+    commit_id = db.execute(
+        pg_insert(Commit)
+        .values(
+            repository_id=repo_id,
+            sha=commit_data['sha'],
+            author=commit_data['author'],
+            message=commit_data['message'],
+            timestamp=commit_data['timestamp'],
+            processed=False,
+            changes_recorded=True,
         )
-        .join(Commit, Function.commit_id == Commit.id)
-        .filter(
-            Commit.repository_id == repo_id,
-            or_(Function.change_type.is_(None), Function.change_type != 'deleted')
+        .on_conflict_do_nothing(constraint='uq_commits_repository_sha')
+        .returning(Commit.id)
+    ).scalar()
+
+    if commit_id is None:
+        return False
+
+    commit = db.get(Commit, commit_id)
+
+    # Only parse the files that actually changed in this commit
+    process_commit_ast(commit, repo_path, db,
+                       changed_files=commit_data.get('changed_files'),
+                       identity_tracker=identity_tracker)
+
+    _store_file_changes(db, repo_id, commit_id, commit_data)
+
+    # Checkpoint in the SAME transaction as everything above.
+    repo.last_indexed_sha = commit_data['sha']
+    db.commit()
+    return True
+
+
+def _store_file_changes(db: Session, repo_id: int, commit_id: int, commit_data: dict) -> None:
+    rows = [
+        {
+            'repository_id': repo_id,
+            'commit_id': commit_id,
+            'file_path': fc['file_path'],
+            'author_email': commit_data['author_email'],
+            'committed_at': commit_data['committed_at'],
+            'lines_added': fc['lines_added'],
+            'lines_deleted': fc['lines_deleted'],
+        }
+        for fc in commit_data.get('file_changes', [])
+    ]
+    if rows:
+        db.execute(
+            pg_insert(FileChange).on_conflict_do_nothing(constraint='uq_file_changes_commit_file'),
+            rows,
         )
-        .group_by(Function.file_path)
+
+
+def backfill_file_changes(repo_id: int, repo_path: str, db: Session, batch: int = 200) -> int:
+    """
+    Store file_changes for commits that have none recorded yet
+    (commits.changes_recorded = false). Each batch commits atomically with the
+    flag, so this is crash-safe and resumable too.
+    """
+    pending = (
+        db.query(Commit.id, Commit.sha)
+        .filter(Commit.repository_id == repo_id, Commit.changes_recorded.is_(False))
+        .order_by(Commit.id)
         .all()
     )
-    complexity_map = {row.file_path: float(row.avg_complexity or 0) for row in complexity_rows}
+    if not pending:
+        return 0
+    logger.info(f"Backfilling file_changes for {len(pending)} commits of repo {repo_id}")
 
-    for m in metrics_list:
-        path = m['file_path']
-        existing = (
-            db.query(FileMetrics)
-            .filter(FileMetrics.repository_id == repo_id, FileMetrics.file_path == path)
-            .first()
-        )
-
-        if existing and incremental:
-            # Merge delta into existing row
-            existing.churn            += m['churn']
-            existing.lines_added      += m['lines_added']
-            existing.lines_deleted    += m['lines_deleted']
-            existing.recent_churn      = m['recent_churn']   # recalculated from HEAD
-            # author_count and ownership_entropy are tricky to merge cheaply;
-            # update them only if the new value is higher (conservative upper-bound)
-            existing.author_count      = max(existing.author_count or 0, m['author_count'])
-            existing.ownership_entropy = max(existing.ownership_entropy or 0.0, m['ownership_entropy'])
-            existing.dependency_count  = m['dependency_count']   # always from HEAD
-            existing.avg_complexity    = complexity_map.get(path, existing.avg_complexity or 0.0)
-            # Recalculate file_age_days from stored first_ts + current time, or keep max
-            existing.file_age_days     = max(existing.file_age_days or 0.0, m['file_age_days'])
-            existing.commit_frequency  = round(
-                existing.churn / max(existing.file_age_days, 1), 4
-            )
-        else:
-            # Full write (first run or new file)
-            if existing:
-                row = existing
-            else:
-                row = FileMetrics(repository_id=repo_id, file_path=path)
-                db.add(row)
-
-            row.churn             = m['churn']
-            row.lines_added       = m['lines_added']
-            row.lines_deleted     = m['lines_deleted']
-            row.file_age_days     = m['file_age_days']
-            row.commit_frequency  = m['commit_frequency']
-            row.recent_churn      = m['recent_churn']
-            row.author_count      = m['author_count']
-            row.ownership_entropy = m['ownership_entropy']
-            row.dependency_count  = m['dependency_count']
-            row.avg_complexity    = complexity_map.get(path, 0.0)
-
+    done = 0
+    for i, (commit_id, sha) in enumerate(pending, 1):
+        try:
+            info = git_service.get_commit_changes(repo_path, sha)
+            _store_file_changes(db, repo_id, commit_id, info)
+        except Exception as e:
+            # Commit no longer in git history (force-push): nothing to record.
+            logger.warning(f"Could not read changes for {sha[:7]}: {redact_secrets(e)}")
+        db.query(Commit).filter(Commit.id == commit_id).update(
+            {Commit.changes_recorded: True}, synchronize_session=False)
+        done += 1
+        if i % batch == 0:
+            db.commit()
     db.commit()
-    mode = "incremental" if incremental else "full"
-    logger.info(f"Stored FileMetrics ({mode}) for {len(metrics_list)} files in repo {repo_id}")
+    return done
+
+
+# Per-file features, recomputed from raw facts. Exact, not merged with old values.
+_FILE_METRICS_SQL = text("""
+WITH per_author AS (
+  SELECT file_path, author_email, COUNT(*)::float AS n
+  FROM file_changes WHERE repository_id = :repo
+  GROUP BY file_path, author_email
+),
+totals AS (
+  SELECT file_path, SUM(n) AS total, COUNT(*) AS authors
+  FROM per_author GROUP BY file_path
+),
+entropy AS (
+  SELECT a.file_path,
+         GREATEST(-SUM((a.n / t.total) * (LN(a.n / t.total) / LN(2))), 0) AS ownership_entropy
+  FROM per_author a JOIN totals t USING (file_path)
+  GROUP BY a.file_path
+),
+agg AS (
+  SELECT file_path,
+         COUNT(DISTINCT commit_id)                              AS churn,
+         COALESCE(SUM(lines_added), 0)                          AS lines_added,
+         COALESCE(SUM(lines_deleted), 0)                        AS lines_deleted,
+         EXTRACT(EPOCH FROM MAX(committed_at) - MIN(committed_at)) / 86400 AS file_age_days,
+         COUNT(DISTINCT commit_id) FILTER (
+           WHERE committed_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '90 days') AS recent_churn
+  FROM file_changes WHERE repository_id = :repo
+  GROUP BY file_path
+)
+SELECT agg.file_path, agg.churn, agg.lines_added, agg.lines_deleted,
+       agg.file_age_days, agg.recent_churn,
+       totals.authors AS author_count, entropy.ownership_entropy
+FROM agg
+JOIN totals  USING (file_path)
+JOIN entropy USING (file_path)
+""")
+
+# Average complexity over the CURRENT functions only: the latest version of each
+# function identity, dropped if that latest version is a deletion.
+_CURRENT_COMPLEXITY_SQL = text("""
+WITH latest AS (
+  SELECT DISTINCT ON (COALESCE(f.canonical_id, f.file_path || ':' || COALESCE(f.qualified_name, f.name)))
+         f.file_path, f.complexity, f.change_type
+  FROM functions f JOIN commits c ON c.id = f.commit_id
+  WHERE c.repository_id = :repo
+  ORDER BY COALESCE(f.canonical_id, f.file_path || ':' || COALESCE(f.qualified_name, f.name)),
+           c.timestamp DESC, c.id DESC, f.id DESC
+)
+SELECT file_path, AVG(complexity) AS avg_complexity
+FROM latest
+WHERE change_type IS DISTINCT FROM 'deleted'
+GROUP BY file_path
+""")
+
+
+def recompute_file_metrics(db: Session, repo_id: int, head_files: dict) -> int:
+    """
+    Rebuild file_metrics for a repo from file_changes + current functions.
+
+    ``head_files`` maps path -> dependency_count for files that exist at HEAD;
+    files deleted since are excluded from risk scoring.
+    """
+    rows = db.execute(_FILE_METRICS_SQL, {'repo': repo_id}).mappings().all()
+    complexity = {
+        r.file_path: float(r.avg_complexity or 0.0)
+        for r in db.execute(_CURRENT_COMPLEXITY_SQL, {'repo': repo_id}).all()
+    }
+
+    new_rows = []
+    for r in rows:
+        path = r['file_path']
+        if path not in head_files:
+            continue
+        churn = int(r['churn'])
+        age = max(float(r['file_age_days'] or 0.0), 0.0)
+        new_rows.append({
+            'repository_id':     repo_id,
+            'file_path':         path,
+            'churn':             churn,
+            'lines_added':       int(r['lines_added']),
+            'lines_deleted':     int(r['lines_deleted']),
+            'file_age_days':     round(age, 1),
+            'commit_frequency':  round(churn / max(age, 1), 4),
+            'recent_churn':      int(r['recent_churn']),
+            'author_count':      int(r['author_count']),
+            'ownership_entropy': round(float(r['ownership_entropy']), 4),
+            'dependency_count':  head_files.get(path, 0),
+            'avg_complexity':    round(complexity.get(path, 0.0), 4),
+        })
+
+    # Replace atomically: stale rows (deleted/renamed files) disappear too.
+    db.query(FileMetrics).filter(FileMetrics.repository_id == repo_id).delete(synchronize_session=False)
+    if new_rows:
+        db.bulk_insert_mappings(FileMetrics, new_rows)
+    db.commit()
+    logger.info(f"Stored FileMetrics for {len(new_rows)} files in repo {repo_id}")
+    return len(new_rows)
 
 
 def _handle_task(task_data: dict) -> None:

@@ -31,6 +31,9 @@ class Commit(Base):
     message = Column(Text)
     timestamp = Column(DateTime)
     processed = Column(Boolean, default=False)
+    # True once this commit's raw file-change facts are stored in file_changes
+    # (written in the same transaction as the commit itself).
+    changes_recorded = Column(Boolean, nullable=False, default=False, server_default='false')
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Idempotent writes: the same commit can never be stored twice for a repo.
@@ -101,3 +104,25 @@ class FileMetrics(Base):
     updated_at         = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     repository = relationship("Repository")
+
+
+class FileChange(Base):
+    """
+    Raw per-commit, per-file facts. file_metrics is recomputed from these with
+    SQL on every run, so metrics are exact and a crash/resume cannot lose history.
+    """
+    __tablename__ = "file_changes"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    repository_id = Column(Integer, ForeignKey("repositories.id", ondelete="CASCADE"), nullable=False)
+    commit_id     = Column(Integer, ForeignKey("commits.id", ondelete="CASCADE"), nullable=False)
+    file_path     = Column(String, nullable=False)
+    author_email  = Column(String, nullable=False)    # lowercased, .mailmap-resolved
+    committed_at  = Column(DateTime, nullable=False)  # UTC, naive
+    lines_added   = Column(Integer, nullable=False, default=0)
+    lines_deleted = Column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        UniqueConstraint('commit_id', 'file_path', name='uq_file_changes_commit_file'),
+        Index('ix_file_changes_repo_file', 'repository_id', 'file_path'),
+    )

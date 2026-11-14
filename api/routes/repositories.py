@@ -5,7 +5,7 @@ import redis
 import json
 
 from database import get_db
-from models import Repository, User, Commit, Function, FileMetrics
+from models import Repository, User, Commit, Function, FileMetrics, FileChange
 from schemas import RepositoryCreate, RepositoryResponse, RepositoryDetail
 from dependencies import get_current_user
 
@@ -114,6 +114,7 @@ async def delete_repository(
     if commit_ids:
         db.query(Function).filter(Function.commit_id.in_(commit_ids)).delete(synchronize_session=False)
 
+    db.query(FileChange).filter(FileChange.repository_id == repo_id).delete(synchronize_session=False)
     db.query(Commit).filter(Commit.repository_id == repo_id).delete(synchronize_session=False)
     db.query(FileMetrics).filter(FileMetrics.repository_id == repo_id).delete(synchronize_session=False)
 
@@ -150,6 +151,7 @@ async def reanalyze_repository(
     if commit_ids:
         db.query(Function).filter(Function.commit_id.in_(commit_ids)).delete(synchronize_session=False)
 
+    db.query(FileChange).filter(FileChange.repository_id == repo_id).delete(synchronize_session=False)
     db.query(Commit).filter(Commit.repository_id == repo_id).delete(synchronize_session=False)
     db.query(FileMetrics).filter(FileMetrics.repository_id == repo_id).delete(synchronize_session=False)
 

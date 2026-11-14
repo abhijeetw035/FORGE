@@ -10,6 +10,9 @@ import git
 
 logger = logging.getLogger(__name__)
 
+# git's well-known empty tree: lets us diff a root commit like any other
+EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+
 
 class GitService:
     def __init__(self, storage_path: str, github_token: Optional[str] = None):
@@ -44,20 +47,88 @@ class GitService:
 
         return commits
 
+    # ── per-commit facts ─────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_numstat(raw: str) -> List[Dict[str, Any]]:
+        """Parse ``git diff --numstat -z`` output into [{file_path, lines_added, lines_deleted}]."""
+        rows = []
+        for entry in raw.split('\0'):
+            if not entry.strip():
+                continue
+            parts = entry.lstrip('\n').split('\t', 2)
+            if len(parts) != 3:
+                continue
+            added, deleted, path = parts
+            rows.append({
+                'file_path': path,
+                # binary files report "-"
+                'lines_added': int(added) if added.isdigit() else 0,
+                'lines_deleted': int(deleted) if deleted.isdigit() else 0,
+            })
+        return rows
+
+    def _canonical_email(self, repo, name: str, email: str, cache: dict) -> str:
+        """Lowercased author email resolved through .mailmap, so one person = one author."""
+        key = (name, email)
+        if key in cache:
+            return cache[key]
+        resolved = email or ''
+        try:
+            out = repo.git.check_mailmap(f"{name} <{email}>")
+            m = re.search(r'<([^>]*)>', out)
+            if m:
+                resolved = m.group(1)
+        except Exception:
+            pass
+        resolved = resolved.strip().lower() or (name or 'unknown').strip().lower()
+        cache[key] = resolved
+        return resolved
+
+    def _commit_info(self, repo, commit, mailmap_cache: dict) -> Dict[str, Any]:
+        """
+        Everything we record about one commit, from a SINGLE git call
+        (diff vs first parent, or vs the empty tree for a root commit).
+
+        ``file_changes`` is empty for merge commits: their changes are already
+        counted on the merged branch's own commits, so counting the merge too
+        would double-count churn and lines.
+        """
+        parent = commit.parents[0].hexsha if commit.parents else EMPTY_TREE
+        rows = self.parse_numstat(
+            repo.git.diff('--numstat', '--no-renames', '-z', parent, commit.hexsha)
+        )
+        is_merge = len(commit.parents) > 1
+        committed = commit.committed_datetime
+        committed_utc = committed.astimezone(timezone.utc).replace(tzinfo=None)
+        return {
+            'sha':           commit.hexsha,
+            'author':        str(commit.author),
+            'author_email':  self._canonical_email(
+                                 repo, commit.author.name or '', commit.author.email or '', mailmap_cache),
+            'message':       commit.message.strip(),
+            'timestamp':     committed,
+            'committed_at':  committed_utc,
+            'changed_files': [r['file_path'] for r in rows],
+            'file_changes':  [] if is_merge else rows,
+        }
+
+    def get_commit_changes(self, repo_path: str, sha: str) -> Dict[str, Any]:
+        """Facts for one existing commit (used to backfill commits indexed before file_changes existed)."""
+        repo = git.Repo(repo_path)
+        return self._commit_info(repo, repo.commit(sha), {})
+
     def get_new_commits(self, repo_path: str, since_sha: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        Return only commits that have NOT been indexed yet.
+        Return only commits that have NOT been indexed yet, oldest first.
 
         If ``since_sha`` is provided (the last fully-indexed commit SHA), we
-        ask git for the range  ``<since_sha>..HEAD`` — typically a handful of
-        commits even on a repo with millions of entries.
+        ask git for the range  ``<since_sha>..HEAD``.  If it is None
+        (first-time clone) we walk the full history.
 
-        If ``since_sha`` is None (first-time clone) we fall back to the full
-        history walk exactly as before.
-
-        Each returned dict also carries ``changed_files`` — the list of file
-        paths that were actually modified in that commit (from diff-tree),
-        so the caller can avoid re-parsing every file in the tree.
+        Each dict carries ``changed_files`` (paths touched, for AST parsing),
+        ``file_changes`` (per-file line stats, stored in file_changes),
+        ``author_email`` (lowercased, .mailmap-resolved) and ``committed_at`` (UTC).
         """
         repo = git.Repo(repo_path)
 
@@ -74,36 +145,28 @@ class GitService:
         else:
             commit_iter = repo.iter_commits()
 
-        commits = []
-        for commit in commit_iter:
-            # Efficient changed-files list via diff against parent(s)
-            if commit.parents:
-                changed_set = set()
-                for diff in commit.diff(commit.parents[0], create_patch=False):
-                    if diff.a_path:
-                        changed_set.add(diff.a_path)
-                    if diff.b_path:
-                        changed_set.add(diff.b_path)
-                changed = list(changed_set)
-            else:
-                # Root commit — every file is "new"
-                changed = [
-                    item.path
-                    for item in commit.tree.traverse()
-                    if item.type == 'blob'
-                ]
+        cache: dict = {}
+        commits = [self._commit_info(repo, c, cache) for c in commit_iter]
 
-            commits.append({
-                'sha':           commit.hexsha,
-                'author':        str(commit.author),
-                'message':       commit.message.strip(),
-                'timestamp':     commit.committed_datetime,
-                'changed_files': changed,
-            })
-
-        # Return in chronological order (oldest first) so we can checkpoint
-        # last_indexed_sha correctly after each commit.
+        # Chronological order (oldest first) so last_indexed_sha checkpoints correctly.
         return list(reversed(commits))
+
+    def get_head_files(self, repo_path: str) -> Dict[str, int]:
+        """
+        {path: dependency_count} for every file that exists at HEAD.
+        Files not in this map were deleted and must not be risk-scored.
+        """
+        repo = git.Repo(repo_path)
+        files: Dict[str, int] = {}
+        for item in repo.head.commit.tree.traverse():
+            if item.type != 'blob':
+                continue
+            try:
+                source = item.data_stream.read().decode('utf-8', errors='ignore')
+                files[item.path] = self._count_dependencies(source, item.path)
+            except Exception:
+                files[item.path] = 0
+        return files
 
     def get_file_at_commit(self, repo_path: str, commit_sha: str, file_path: str) -> Optional[str]:
         try:
@@ -113,129 +176,6 @@ class GitService:
             return blob.data_stream.read().decode('utf-8')
         except Exception:
             return None
-
-    def get_file_metrics(self, repo_path: str, since_sha: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        Walk the commit history and compute per-file features.
-
-        ``since_sha`` enables incremental mode: only commits in the range
-        ``<since_sha>..HEAD`` are walked, so the caller can merge the returned
-        deltas into existing FileMetrics rows instead of recomputing everything.
-
-        When ``since_sha`` is None (first run) the full history is walked.
-
-        Per-file features computed:
-        - churn            : total number of commits that touched this file
-        - lines_added      : cumulative lines added across all commits
-        - lines_deleted    : cumulative lines deleted across all commits
-        - file_age_days    : days between first and last commit touching the file
-        - commit_frequency : commits per day (churn / max(file_age_days, 1))
-        - recent_churn     : commits in the last 90 days
-        - author_count     : number of distinct authors
-        - ownership_entropy: Shannon entropy of author contribution fractions
-        - dependency_count : rough count of import/require/include statements
-                             in the HEAD version of the file
-        """
-        repo = git.Repo(repo_path)
-        now = datetime.now(timezone.utc)
-        ninety_days_ago = now.timestamp() - 90 * 86400
-
-        if since_sha:
-            try:
-                commit_iter = repo.iter_commits(f'{since_sha}..HEAD')
-                logger.info(f"Incremental file-metrics walk from {since_sha[:7]}")
-            except git.BadName:
-                logger.warning(f"since_sha {since_sha!r} not in history; full walk")
-                commit_iter = repo.iter_commits()
-        else:
-            commit_iter = repo.iter_commits()
-
-        file_churn:      Dict[str, int]             = defaultdict(int)
-        file_lines_add:  Dict[str, int]             = defaultdict(int)
-        file_lines_del:  Dict[str, int]             = defaultdict(int)
-        file_first_ts:   Dict[str, float]           = {}
-        file_last_ts:    Dict[str, float]           = {}
-        file_recent:     Dict[str, int]             = defaultdict(int)
-        file_authors:    Dict[str, Counter]         = defaultdict(Counter)
-
-        for commit in commit_iter:
-            ts = commit.committed_date  # unix timestamp
-            author = str(commit.author)
-
-            # diff against each parent (or root commit)
-            parents = commit.parents
-            if parents:
-                diffs = commit.diff(parents[0], create_patch=False)
-            else:
-                # root commit – treat every blob as "added"
-                diffs = commit.diff(git.NULL_TREE, create_patch=False)
-
-            for diff in diffs:
-                path = diff.b_path or diff.a_path
-                if not path:
-                    continue
-
-                file_churn[path] += 1
-                file_authors[path][author] += 1
-
-                if path not in file_first_ts or ts < file_first_ts[path]:
-                    file_first_ts[path] = ts
-                if path not in file_last_ts or ts > file_last_ts[path]:
-                    file_last_ts[path] = ts
-
-                if ts >= ninety_days_ago:
-                    file_recent[path] += 1
-
-                # line stats via diff stats (available without --patch)
-                try:
-                    stats = commit.stats.files.get(path, {})
-                    file_lines_add[path] += stats.get('insertions', 0)
-                    file_lines_del[path] += stats.get('deletions', 0)
-                except Exception:
-                    pass
-
-        # dependency count from HEAD tree
-        file_deps: Dict[str, int] = {}
-        try:
-            head_commit = repo.head.commit
-            for item in head_commit.tree.traverse():
-                if item.type != 'blob':
-                    continue
-                try:
-                    source = item.data_stream.read().decode('utf-8', errors='ignore')
-                    file_deps[item.path] = self._count_dependencies(source, item.path)
-                except Exception:
-                    file_deps[item.path] = 0
-        except Exception:
-            pass
-
-        # assemble results
-        results = []
-        for path, churn in file_churn.items():
-            first_ts = file_first_ts.get(path, now.timestamp())
-            last_ts  = file_last_ts.get(path, now.timestamp())
-            age_days = max((last_ts - first_ts) / 86400, 0)
-
-            author_counts = file_authors[path]
-            total_touches = sum(author_counts.values())
-            entropy = self._shannon_entropy(
-                [c / total_touches for c in author_counts.values()]
-            ) if total_touches > 0 else 0.0
-
-            results.append({
-                'file_path':         path,
-                'churn':             churn,
-                'lines_added':       file_lines_add.get(path, 0),
-                'lines_deleted':     file_lines_del.get(path, 0),
-                'file_age_days':     round(age_days, 1),
-                'commit_frequency':  round(churn / max(age_days, 1), 4),
-                'recent_churn':      file_recent.get(path, 0),
-                'author_count':      len(author_counts),
-                'ownership_entropy': round(entropy, 4),
-                'dependency_count':  file_deps.get(path, 0),
-            })
-
-        return results
 
     # Helpers
     @staticmethod
