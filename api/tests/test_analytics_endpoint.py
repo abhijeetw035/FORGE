@@ -417,3 +417,54 @@ def test_heatmap_does_not_leak_other_repositories(test_setup):
     db.commit()
     data = TestClient(app).get(f"/analytics/repositories/{repo.id}/heatmap").json()
     assert [d["name"] for d in data] == ["mine.py"]
+
+
+def test_function_evolution_limit_is_applied_in_sql_not_after_loading_everything(test_setup):
+    """
+    20 functions with 1..20 versions each. limit=3 must return the 3 most-changed
+    (in order) AND must not even load rows for the other 17 (this used to load
+    every row of a large repo into Python and got the API OOM-killed).
+    """
+    from sqlalchemy import event
+    from database import engine
+
+    db, repo = test_setup["db"], test_setup["repo"]
+    client = TestClient(app)
+
+    commits = []
+    for i in range(20):
+        c = Commit(repository_id=repo.id, sha=f"{i:040x}", author="A", message=f"c{i}",
+                   timestamp=datetime(2026, 1, 1 + i))
+        db.add(c)
+        commits.append(c)
+    db.flush()
+    for fn_idx in range(20):                       # fn_idx 19 has 20 versions, fn_idx 0 has 1
+        for v in range(fn_idx + 1):
+            db.add(Function(commit_id=commits[v].id, name=f"fn{fn_idx}", qualified_name=f"fn{fn_idx}",
+                            file_path="f.py", start_line=1, end_line=3, complexity=v + 1,
+                            canonical_id=f"canon{fn_idx:02d}", change_type="edit", body_hash=f"b{fn_idx}_{v}"))
+    db.commit()
+
+    fetched = {"rows": 0}
+
+    @event.listens_for(engine, "after_cursor_execute")
+    def count_rows(conn, cursor, statement, parameters, context, executemany):
+        if "FROM functions" in statement and "JOIN commits" in statement and "GROUP BY" not in statement:
+            fetched["rows"] += cursor.rowcount if cursor.rowcount and cursor.rowcount > 0 else 0
+
+    try:
+        r = client.get(f"/analytics/repositories/{repo.id}/function-evolution?limit=3")
+    finally:
+        event.remove(engine, "after_cursor_execute", count_rows)
+
+    assert r.status_code == 200
+    data = r.json()
+    assert [d["canonical_id"] for d in data] == ["canon19", "canon18", "canon17"]
+    assert [d["commit_count"] for d in data] == [20, 19, 18]
+    assert fetched["rows"] == 20 + 19 + 18         # only the top 3 functions' rows were loaded (not 210)
+
+
+@pytest.mark.parametrize("limit", [0, -1, 201, 100000])
+def test_function_evolution_limit_is_bounded(test_setup, limit):
+    r = TestClient(app).get(f"/analytics/repositories/{test_setup['repo'].id}/function-evolution?limit={limit}")
+    assert r.status_code == 422

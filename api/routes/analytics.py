@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, case
 from database import get_db
@@ -11,7 +11,7 @@ from datetime import datetime
 router = APIRouter(prefix='/analytics', tags=['analytics'])
 
 @router.get("/repositories/{repo_id}/heatmap")
-async def get_repository_heatmap(
+def get_repository_heatmap(
     repo_id: int, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -49,7 +49,7 @@ async def get_repository_heatmap(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/repositories/{repo_id}/timeline")
-async def get_repository_timeline(
+def get_repository_timeline(
     repo_id: int, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -148,7 +148,7 @@ async def get_repository_timeline(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/repositories/{repo_id}/contributors")
-async def get_repository_contributors(
+def get_repository_contributors(
     repo_id: int, 
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -215,7 +215,7 @@ async def get_repository_contributors(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/repositories/{repo_id}/risk-prediction")
-async def get_risk_prediction(
+def get_risk_prediction(
     repo_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -305,9 +305,9 @@ async def get_risk_prediction(
 
 
 @router.get("/repositories/{repo_id}/function-evolution")
-async def get_function_evolution(
+def get_function_evolution(
     repo_id: int,
-    limit: int = 50,
+    limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -329,7 +329,24 @@ async def get_function_evolution(
         if not repo:
             raise HTTPException(status_code=404, detail="Repository not found")
 
-        # Only pull functions that have a canonical_id (hashed by the new miner)
+        # Memory-safe: pick the `limit` most-changed functions IN SQL first, then load
+        # rows for only those. (Loading every row of a large repo into Python
+        # dicts, then slicing, used to get the API process OOM-killed.)
+        top_ids = [
+            r.canonical_id
+            for r in (
+                db.query(Function.canonical_id, func.count(Function.id).label('n'))
+                .join(Commit, Function.commit_id == Commit.id)
+                .filter(Commit.repository_id == repo_id, Function.canonical_id.isnot(None))
+                .group_by(Function.canonical_id)
+                .order_by(func.count(Function.id).desc(), Function.canonical_id.asc())
+                .limit(limit)
+                .all()
+            )
+        ]
+        if not top_ids:
+            return []
+
         rows = (
             db.query(
                 Function.canonical_id,
@@ -351,7 +368,7 @@ async def get_function_evolution(
             .join(Commit, Function.commit_id == Commit.id)
             .filter(
                 Commit.repository_id == repo_id,
-                Function.canonical_id.isnot(None),
+                Function.canonical_id.in_(top_ids),
             )
             .order_by(Commit.timestamp.asc(), Function.id.asc())
             .all()
@@ -445,7 +462,7 @@ async def get_function_evolution(
                 'versions':         versions,
             })
 
-        evolution.sort(key=lambda r: r['commit_count'], reverse=True)
+        evolution.sort(key=lambda r: (-r['commit_count'], r['canonical_id']))
 
         # Serialise — datetime objects aren't JSON-serialisable by default
         def _serialise(entry: dict) -> dict:
