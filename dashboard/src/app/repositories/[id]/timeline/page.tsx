@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getRepository, getRepositoryTimeline } from '@/lib/api';
 import Timeline from '@/components/Timeline';
 import type { TimelineData } from '@/lib/api';
+import type { Repository } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 
 interface PageProps {
@@ -14,6 +15,7 @@ interface PageProps {
 export default function TimelinePage({ params }: PageProps) {
   const [id, setId] = useState<string>('');
   const [timelineData, setTimelineData] = useState<TimelineData[]>([]);
+  const [repo, setRepo] = useState<Repository | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const router = useRouter();
@@ -35,11 +37,12 @@ export default function TimelinePage({ params }: PageProps) {
 
     const fetchData = async () => {
       try {
-        const [repo, timeline] = await Promise.all([
+        const [repoData, timeline] = await Promise.all([
           getRepository(id),
           getRepositoryTimeline(id),
         ]);
         
+        setRepo(repoData);
         setTimelineData(timeline);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -73,15 +76,8 @@ export default function TimelinePage({ params }: PageProps) {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-white mb-2">Evolution Timeline</h1>
-        <p className="text-zinc-400">Temporal evolution of code complexity and function growth</p>
-      </div>
-
-      <div className="glass-card p-6">
-        <Timeline data={timelineData} />
-      </div>
+    <div className="max-w-[1100px] mx-auto pb-16">
+      <Timeline data={timelineData} repoUrl={repo?.url} />
     </div>
   );
 }
