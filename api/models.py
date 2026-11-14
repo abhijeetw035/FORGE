@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean, JSON, Float, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
@@ -25,6 +25,8 @@ class Repository(Base):
     status = Column(String, default="pending")
     # SHA of the last commit that was fully indexed; used for incremental re-analysis
     last_indexed_sha = Column(String, nullable=True)
+    # Human-readable reason shown in the UI when status == "failed"
+    failed_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -43,6 +45,11 @@ class Commit(Base):
     processed = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # Idempotent writes: the same commit can never be stored twice for a repo.
+    __table_args__ = (
+        UniqueConstraint('repository_id', 'sha', name='uq_commits_repository_sha'),
+    )
+
     repository = relationship("Repository", back_populates="commits")
     functions = relationship("Function", back_populates="commit", cascade="all, delete-orphan")
 
@@ -72,6 +79,7 @@ class Function(Base):
 
     __table_args__ = (
         Index('ix_functions_file_path_qualified_name', 'file_path', 'qualified_name'),
+        UniqueConstraint('commit_id', 'file_path', 'qualified_name', 'start_line', 'body_hash', name='uq_functions_identity'),
     )
 
     commit = relationship("Commit", back_populates="functions")

@@ -5,14 +5,20 @@ import json
 import os
 import socket
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from database import SessionLocal
+from database import SessionLocal, engine
 from models import Repository, Commit, Function, FileMetrics
 from services.git_service import GitService
 from services.ast_parser import ASTParser
 from services.identity import FunctionIdentityTracker, match_functions
+from queue_utils import (
+    PermanentError, repo_lock, handle_message, redact_secrets, install_log_redaction,
+    STREAM_NAME, CONSUMER_GROUP, CLAIM_IDLE_MS,
+)
 
 logging.basicConfig(level=logging.INFO)
+install_log_redaction()
 logger = logging.getLogger(__name__)
 
 storage_path = os.getenv('STORAGE_PATH', '/storage')
@@ -31,12 +37,88 @@ try:
 except Exception as e:
     logger.error(f"Failed to initialize Tree-sitter: {e}")
 
-def process_repository(task_data: dict, db: Session):
+_PERMANENT_CLONE_MARKERS = (
+    'repository not found', 'not found', 'authentication failed',
+    'could not read username', 'invalid username or password',
+    'does not appear to be a git repository', 'unable to access',
+    # git could not prompt for credentials (no TTY): private/nonexistent repo
+    'could not read password', 'terminal prompts disabled', 'no such device or address',
+    'invalid url', 'permission denied', 'returned error: 40',
+)
+
+
+def classify_clone_error(exc: Exception) -> Exception:
+    """Return PermanentError for failures retrying cannot fix, else the original."""
+    msg = str(exc).lower()
+    if any(m in msg for m in _PERMANENT_CLONE_MARKERS):
+        # "unable to access" also covers transient network errors; keep those retryable
+        if 'unable to access' in msg and any(
+            t in msg for t in ('timed out', 'timeout', 'could not resolve', 'connection reset',
+                               'connection refused', 'returned error: 5')
+        ):
+            return exc
+        return PermanentError(f"Could not clone repository: {redact_secrets(exc)}")
+    return exc
+
+
+def mark_repo_failed(repo_id, reason: str) -> None:
+    """Mark a repository failed with a human-readable reason (own session)."""
+    if repo_id is None:
+        return
+    db = SessionLocal()
+    try:
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if repo:
+            repo.status = "failed"
+            repo.failed_reason = redact_secrets(reason or "")[:1000]
+            db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(f"Could not mark repo {repo_id} failed")
+    finally:
+        db.close()
+
+
+def mark_repo_retrying(task_data: dict, exc: Exception) -> None:
+    """Transient failure: show the repo as waiting for a retry, not stuck mid-analysis."""
+    repo_id = task_data.get('repository_id')
+    db = SessionLocal()
+    try:
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if repo:
+            repo.status = "queued"
+            repo.failed_reason = f"Retrying after error: {redact_secrets(exc)[:500]}"
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+def process_repository(task_data: dict, db: Session) -> bool:
+    """
+    Run the analysis for one repository under a per-repo advisory lock.
+
+    Returns True if the work ran, False if another worker already holds the
+    lock (the caller should still ACK: the message is a duplicate).
+    Raises PermanentError for failures retrying cannot fix; any other
+    exception is transient (the message is left un-ACKed and retried).
+    """
+    repo_id = task_data['repository_id']
+    with repo_lock(engine, repo_id) as acquired:
+        if not acquired:
+            logger.info(f"Repository {repo_id} is already being processed; skipping duplicate")
+            return False
+        _run_pipeline(task_data, db)
+        return True
+
+
+def _run_pipeline(task_data: dict, db: Session) -> None:
     repo_id = task_data['repository_id']
     url = task_data['url']
-    
+
     logger.info(f"Processing repository {repo_id}: {url}")
-    
+
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
     if not repo:
         if repo_id >= 999000:
@@ -44,14 +126,17 @@ def process_repository(task_data: dict, db: Session):
             time.sleep(0.5)
             logger.info(f"Simulated work for dummy repo {repo_id}")
             return
-        logger.error(f"Repository {repo_id} not found")
-        return
-    
+        raise PermanentError(f"Repository {repo_id} not found")
+
     try:
         repo.status = "cloning"
+        repo.failed_reason = None
         db.commit()
-        
-        repo_path = git_service.clone_repository(url, repo_id)
+
+        try:
+            repo_path = git_service.clone_repository(url, repo_id)
+        except Exception as clone_err:
+            raise classify_clone_error(clone_err)
         repo.clone_path = repo_path
         repo.status = "analyzing"
         db.commit()
@@ -70,24 +155,27 @@ def process_repository(task_data: dict, db: Session):
             identity_tracker.seed_from_db(since_sha)
         else:
             logger.info(f"First run: {len(commits_data)} commits to index")
-        
+
         for commit_data in commits_data:
-            existing_commit = db.query(Commit).filter(
-                Commit.repository_id == repo_id,
-                Commit.sha == commit_data['sha']
-            ).first()
-            
-            if not existing_commit:
-                commit = Commit(
+            # Idempotent insert: unique (repository_id, sha) + ON CONFLICT DO NOTHING.
+            # If the commit already exists (duplicate run), skip it.
+            commit_id = db.execute(
+                pg_insert(Commit)
+                .values(
                     repository_id=repo_id,
                     sha=commit_data['sha'],
                     author=commit_data['author'],
                     message=commit_data['message'],
-                    timestamp=commit_data['timestamp']
+                    timestamp=commit_data['timestamp'],
+                    processed=False,
                 )
-                db.add(commit)
-                db.flush()
-                
+                .on_conflict_do_nothing(constraint='uq_commits_repository_sha')
+                .returning(Commit.id)
+            ).scalar()
+
+            if commit_id is not None:
+                commit = db.get(Commit, commit_id)
+
                 # Only parse the files that actually changed in this commit
                 process_commit_ast(commit, repo_path, db,
                                    changed_files=commit_data.get('changed_files'),
@@ -97,7 +185,7 @@ def process_repository(task_data: dict, db: Session):
                 # processes commits that come after it.
                 repo.last_indexed_sha = commit_data['sha']
                 db.commit()
-        
+
         db.commit()
 
         logger.info(f"Computing rich file metrics for repo {repo_id}...")
@@ -105,17 +193,41 @@ def process_repository(task_data: dict, db: Session):
             # Pass since_sha so only the delta commits are walked for metrics
             compute_and_store_file_metrics(repo_id, repo_path, db, since_sha=since_sha)
         except Exception as metric_err:
+            db.rollback()
             logger.warning(f"File-metrics computation failed (non-fatal): {metric_err}")
 
         repo.status = "completed"
+        repo.failed_reason = None
         db.commit()
-        
+
         logger.info(f"Repository {repo_id} processed successfully")
-        
+
     except Exception as e:
+        # Do NOT swallow: PermanentError fails fast, anything else is retried.
+        # The queue handler records the final status/reason.
         logger.error(f"Error processing repository {repo_id}: {e}")
-        repo.status = "failed"
-        db.commit()
+        db.rollback()
+        raise
+
+def _function_row(commit_id: int, func_data: dict, deleted: bool) -> dict:
+    """Column dict for a Function insert (active or deleted)."""
+    return {
+        'commit_id': commit_id,
+        'name': func_data['name'],
+        'qualified_name': func_data.get('qualified_name'),
+        'file_path': func_data['file_path'],
+        'start_line': func_data.get('start_line'),
+        'end_line': func_data.get('end_line'),
+        'complexity': func_data.get('complexity'),
+        'lines_of_code': 0 if deleted else func_data.get('lines_of_code'),
+        'parameters': func_data.get('parameters'),
+        'body_hash': func_data.get('body_hash'),
+        'signature_hash': func_data.get('signature_hash'),
+        'canonical_id': func_data.get('canonical_id'),
+        'change_type': 'deleted' if deleted else func_data.get('change_type'),
+        'similarity': None if deleted else func_data.get('similarity'),
+    }
+
 
 def process_commit_ast(commit: Commit, repo_path: str, db: Session,
                        changed_files: list = None,
@@ -193,45 +305,18 @@ def process_commit_ast(commit: Commit, repo_path: str, db: Session,
         # Match new vs previous functions
         matched_new, deleted_funcs = match_functions(new_funcs, prev_funcs)
 
-        # Store matched active functions
+        # Idempotent write: unique (commit_id, file_path, qualified_name) +
+        # ON CONFLICT DO NOTHING, so a duplicate run cannot create duplicate rows.
+        rows = []
         for func_data in matched_new:
-            function = Function(
-                commit_id=commit.id,
-                name=func_data['name'],
-                qualified_name=func_data.get('qualified_name'),
-                file_path=func_data['file_path'],
-                start_line=func_data.get('start_line'),
-                end_line=func_data.get('end_line'),
-                complexity=func_data.get('complexity'),
-                lines_of_code=func_data.get('lines_of_code'),
-                parameters=func_data.get('parameters'),
-                body_hash=func_data.get('body_hash'),
-                signature_hash=func_data.get('signature_hash'),
-                canonical_id=func_data.get('canonical_id'),
-                change_type=func_data.get('change_type'),
-                similarity=func_data.get('similarity'),
-            )
-            db.add(function)
-
-        # Store deleted functions
+            rows.append(_function_row(commit.id, func_data, deleted=False))
         for func_data in deleted_funcs:
-            function = Function(
-                commit_id=commit.id,
-                name=func_data['name'],
-                qualified_name=func_data.get('qualified_name'),
-                file_path=func_data['file_path'],
-                start_line=func_data.get('start_line'),
-                end_line=func_data.get('end_line'),
-                complexity=func_data.get('complexity'),
-                lines_of_code=0,
-                parameters=func_data.get('parameters'),
-                body_hash=func_data.get('body_hash'),
-                signature_hash=func_data.get('signature_hash'),
-                canonical_id=func_data.get('canonical_id'),
-                change_type='deleted',
-                similarity=None,
+            rows.append(_function_row(commit.id, func_data, deleted=True))
+        if rows:
+            db.execute(
+                pg_insert(Function).on_conflict_do_nothing(constraint='uq_functions_identity'),
+                rows,
             )
-            db.add(function)
 
         # Update identity tracker state for subsequent commits
         identity_tracker.update_state(matched_new, deleted_funcs)
@@ -323,19 +408,25 @@ def compute_and_store_file_metrics(repo_id: int, repo_path: str, db: Session,
     logger.info(f"Stored FileMetrics ({mode}) for {len(metrics_list)} files in repo {repo_id}")
 
 
+def _handle_task(task_data: dict) -> None:
+    """Run one decoded task on its own DB session."""
+    if task_data.get('type') != 'clone_and_analyze':
+        return
+    db = SessionLocal()
+    try:
+        process_repository(task_data, db)  # False (duplicate) is fine: caller ACKs
+    finally:
+        db.close()
+
+
 def main():
     logger.info("Miner worker starting...")
 
     r = redis.Redis(host='redis', port=6379, decode_responses=True)
 
-    # ── Redis Stream constants ────────────────────────────────────────────
-    STREAM_NAME    = 'forge:tasks'
-    CONSUMER_GROUP = 'miner-workers'
     # Each container gets a unique consumer name so multiple workers can run
-    CONSUMER_NAME  = f'worker-{socket.gethostname()}'
-    # Messages idle for longer than this are reclaimed from crashed workers (ms)
-    CLAIM_IDLE_MS  = 60_000   # 60 seconds
-    BLOCK_MS       = 5_000    # block up to 5 s waiting for new messages
+    CONSUMER_NAME = f'worker-{socket.gethostname()}'
+    BLOCK_MS = 5_000    # block up to 5 s waiting for new messages
 
     # ── Ensure stream + consumer group exist ─────────────────────────────
     try:
@@ -349,34 +440,21 @@ def main():
             raise
 
     def _process_message(msg_id: str, fields: dict):
-        """Deserialise and process one stream message, then ACK it."""
-        try:
-            task_data = json.loads(fields['payload'])
-            logger.info(f"Processing task (stream id={msg_id}): {task_data}")
-
-            db = SessionLocal()
-            try:
-                if task_data['type'] == 'clone_and_analyze':
-                    process_repository(task_data, db)
-            finally:
-                db.close()
-
-            # ACK only after successful processing — message stays in the
-            # PEL (Pending Entries List) until this line runs.
-            r.xack(STREAM_NAME, CONSUMER_GROUP, msg_id)
-            logger.debug(f"ACKed message {msg_id}")
-
-        except Exception as e:
-            logger.error(f"Error processing message {msg_id}: {e}")
-            # Do NOT ack — message stays in PEL and will be reclaimed after
-            # CLAIM_IDLE_MS by the next XAUTOCLAIM call.
+        """Heartbeat + retry cap + DLQ + ACK handling live in queue_utils."""
+        outcome = handle_message(
+            r, msg_id, fields, CONSUMER_NAME,
+            process_fn=_handle_task,
+            mark_failed=mark_repo_failed,
+            on_transient_error=mark_repo_retrying,
+        )
+        logger.info(f"Message {msg_id} outcome: {outcome}")
 
     while True:
         try:
             # ── 1. Reclaim messages from crashed workers ──────────────────
-            # XAUTOCLAIM transfers any PEL messages idle > CLAIM_IDLE_MS to
-            # this worker.  This is the crash-safety guarantee: if a previous
-            # worker popped a job and died before ACKing, we pick it up here.
+            # A healthy worker heartbeats its message (XCLAIM JUSTID), so only
+            # a message with NO heartbeat for CLAIM_IDLE_MS (dead worker, or a
+            # transient failure awaiting retry) is reclaimed here.
             try:
                 claimed = r.xautoclaim(
                     STREAM_NAME, CONSUMER_GROUP, CONSUMER_NAME,
@@ -387,7 +465,10 @@ def main():
                 # xautoclaim returns (next_start_id, [(msg_id, fields), ...], [...deleted])
                 reclaimed_messages = claimed[1] if claimed else []
                 for msg_id, fields in reclaimed_messages:
-                    logger.warning(f"Reclaiming orphaned message {msg_id} from crashed worker")
+                    if not fields:   # entry was trimmed from the stream
+                        r.xack(STREAM_NAME, CONSUMER_GROUP, msg_id)
+                        continue
+                    logger.warning(f"Reclaiming orphaned message {msg_id} (no heartbeat for {CLAIM_IDLE_MS // 1000}s)")
                     _process_message(msg_id, fields)
             except redis.exceptions.ResponseError:
                 # XAUTOCLAIM requires Redis 7.0+; silently skip on older versions
@@ -409,19 +490,18 @@ def main():
             else:
                 # ── 3. Fallback: drain legacy task_queue list ─────────────
                 # During rolling deploy the API may still push to the old list.
+                # The legacy list has no PEL, so there is no retry: any failure is final.
                 legacy = r.blpop('task_queue', timeout=1)
                 if legacy:
+                    task_data = None
                     try:
                         task_data = json.loads(legacy[1])
                         logger.info(f"Processing legacy list task: {task_data}")
-                        db = SessionLocal()
-                        try:
-                            if task_data['type'] == 'clone_and_analyze':
-                                process_repository(task_data, db)
-                        finally:
-                            db.close()
+                        _handle_task(task_data)
                     except Exception as e:
                         logger.error(f"Error processing legacy task: {e}")
+                        if task_data:
+                            mark_repo_failed(task_data.get('repository_id'), str(e))
                 else:
                     logger.debug("No tasks — waiting...")
 

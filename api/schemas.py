@@ -36,6 +36,7 @@ class RepositoryResponse(BaseModel):
     name: str
     owner: str
     status: str
+    failed_reason: Optional[str] = None
     created_at: datetime
     
     class Config:
