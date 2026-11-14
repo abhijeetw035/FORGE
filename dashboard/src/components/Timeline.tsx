@@ -24,7 +24,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import type { TimelineData } from '@/lib/api';
-import { detectSpikes, type Spike } from '@/lib/spikes';
+import { detectSpikes, type Spike, SPIKE_MAX_CHART_MARKERS } from '@/lib/spikes';
 
 interface TimelineProps {
   data: TimelineData[];
@@ -33,9 +33,38 @@ interface TimelineProps {
 
 type TimeRange = '30d' | '90d' | '1y' | 'all';
 
-function formatMonthYear(timestamp: number): string {
+/** |change| below this percent is "steady" — used by verdict, pill and tile color. */
+export const STEADY_THRESHOLD_PCT = 10;
+
+export type ChangeDirection = 'steady' | 'up' | 'down';
+
+export function classifyChange(pctChange: number): ChangeDirection {
+  if (Math.abs(pctChange) < STEADY_THRESHOLD_PCT) return 'steady';
+  return pctChange > 0 ? 'up' : 'down';
+}
+
+/** "MMM 'YY", e.g. "Jan '26". */
+export function formatMonthYear(timestamp: number): string {
   const d = new Date(timestamp);
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  const year = String(d.getFullYear()).slice(-2);
+  return `${month} '${year}`;
+}
+
+/** ~count evenly spaced timestamps between min and max (inclusive), de-duplicated by label. */
+export function buildTimeTicks(min: number, max: number, count = 7): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max <= min) return [min];
+  const ticks: number[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < count; i++) {
+    const t = Math.round(min + ((max - min) * i) / (count - 1));
+    const label = formatMonthYear(t);
+    if (seen.has(label)) continue;
+    seen.add(label);
+    ticks.push(t);
+  }
+  return ticks;
 }
 
 function formatRelativeDate(dateStr: string): string {
@@ -62,9 +91,9 @@ export function summarizeEvolution(
   data: TimelineData[],
   rangeLabel: string,
   spikesCount: number
-): { text: string; status: 'Steady' | 'Rising' | 'Improving' } {
+): { text: string; status: 'Steady' | 'Rising' | 'Improving'; pctChange: number } {
   if (!data || data.length === 0) {
-    return { text: 'No commit evolution data in this period.', status: 'Steady' };
+    return { text: 'No commit evolution data in this period.', status: 'Steady', pctChange: 0 };
   }
   if (data.length === 1) {
     const fCount = data[0].function_count;
@@ -72,6 +101,7 @@ export function summarizeEvolution(
     return {
       text: `Single commit tracked with ${fCount} functions and ${cVal} average complexity.`,
       status: 'Steady',
+      pctChange: 0,
     };
   }
 
@@ -87,33 +117,42 @@ export function summarizeEvolution(
   const firstFunc = data[0].function_count;
   const lastFunc = data[data.length - 1].function_count;
 
-  const pctChange = avgStart > 0 ? ((avgEnd - avgStart) / avgStart) * 100 : 0;
+  // "grew" / "shrank" / "stayed flat"
+  const growthWord = lastFunc > firstFunc ? 'grew' : lastFunc < firstFunc ? 'shrank' : 'stayed flat';
 
-  if (rangeLabel !== 'All' && spikesCount === 0 && Math.abs(pctChange) < 15) {
+  // Consistent 10 % threshold for all three states
+  const pctChange = avgStart > 0 ? ((avgEnd - avgStart) / avgStart) * 100 : 0;
+  const direction = classifyChange(pctChange);
+
+  if (direction === 'steady') {
+    // Steady: optionally note if no spikes
+    if (rangeLabel !== 'All' && spikesCount === 0) {
+      return {
+        text: `Things have settled down: no big complexity jumps in the last ${rangeLabel.toLowerCase()}.`,
+        status: 'Steady',
+        pctChange,
+      };
+    }
     return {
-      text: `Things have settled down: no big complexity jumps in the last ${rangeLabel.toLowerCase()}.`,
+      text: `Your codebase ${growthWord} from ${firstFunc.toLocaleString()} to ${lastFunc.toLocaleString()} functions while average complexity stayed steady (${avgStart.toFixed(1)} → ${avgEnd.toFixed(1)}).`,
       status: 'Steady',
+      pctChange,
     };
   }
 
-  if (pctChange > 15) {
+  if (direction === 'up') {
     const timeframe = rangeLabel === 'All' ? 'across commit history' : `in the last ${rangeLabel.toLowerCase()}`;
     return {
       text: `Complexity has been rising — up ${Math.round(pctChange)}% ${timeframe}.`,
       status: 'Rising',
-    };
-  }
-
-  if (pctChange < -15) {
-    return {
-      text: `Code maintainability has been improving — average complexity decreased from ${avgStart.toFixed(1)} to ${avgEnd.toFixed(1)}.`,
-      status: 'Improving',
+      pctChange,
     };
   }
 
   return {
-    text: `Your codebase grew from ${firstFunc} to ${lastFunc} functions while average complexity stayed steady (${avgStart.toFixed(1)} → ${avgEnd.toFixed(1)}).`,
-    status: 'Steady',
+    text: `Code maintainability has been improving — average complexity decreased from ${avgStart.toFixed(1)} to ${avgEnd.toFixed(1)}.`,
+    status: 'Improving',
+    pctChange,
   };
 }
 
@@ -154,9 +193,13 @@ export default function Timeline({ data, repoUrl }: TimelineProps) {
     return [...spikes].sort((a, b) => b.delta - a.delta).slice(0, 5);
   }, [spikes]);
 
+  // Only the top N spikes (by size) get a marker on the chart; the full list stays in "View all".
   const spikeShaMap = useMemo(() => {
     const map = new Map<string, Spike>();
-    spikes.forEach(s => map.set(s.commit.sha, s));
+    [...spikes]
+      .sort((a, b) => b.delta - a.delta)
+      .slice(0, SPIKE_MAX_CHART_MARKERS)
+      .forEach(s => map.set(s.commit.sha, s));
     return map;
   }, [spikes]);
 
@@ -194,6 +237,11 @@ export default function Timeline({ data, repoUrl }: TimelineProps) {
     }
     return result;
   }, [filteredData, spikeShaMap]);
+
+  const timeTicks = useMemo(() => {
+    if (chartPoints.length === 0) return [];
+    return buildTimeTicks(chartPoints[0].timestamp, chartPoints[chartPoints.length - 1].timestamp, 7);
+  }, [chartPoints]);
 
   const rangeLabel = range === '30d' ? '30 days' : range === '90d' ? '90 days' : range === '1y' ? '1 year' : 'All';
   const verdict = useMemo(() => {
@@ -375,7 +423,7 @@ export default function Timeline({ data, repoUrl }: TimelineProps) {
               ? 'bg-amber-950/40 text-[#FBBF24] border-amber-900/50'
               : verdict.status === 'Improving'
               ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/50'
-              : 'bg-blue-950/40 text-blue-400 border-blue-900/50'
+              : 'bg-[#1C1C21] text-[#A1A1AA] border-[#2A2A30]'
           }`}
         >
           {verdict.status}
@@ -395,12 +443,14 @@ export default function Timeline({ data, repoUrl }: TimelineProps) {
             </p>
           </div>
           <p className="text-xs font-medium mt-3 flex items-center gap-1.5">
-            {stats.complexityDelta > 0 ? (
-              <span className="text-rose-400">▲ +{stats.complexityDelta} vs. start</span>
-            ) : stats.complexityDelta < 0 ? (
+            {verdict.status === 'Rising' ? (
+              <span className="text-[#FBBF24]">▲ +{stats.complexityDelta} vs. start</span>
+            ) : verdict.status === 'Improving' ? (
               <span className="text-emerald-400">▼ {stats.complexityDelta} vs. start</span>
             ) : (
-              <span className="text-[#A1A1AA]">0.0 vs. start</span>
+              <span className="text-[#A1A1AA]">
+                → {stats.complexityDelta > 0 ? '+' : ''}{stats.complexityDelta} vs. start
+              </span>
             )}
           </p>
         </div>
@@ -521,6 +571,8 @@ export default function Timeline({ data, repoUrl }: TimelineProps) {
                 dataKey="timestamp"
                 domain={['dataMin', 'dataMax']}
                 scale="time"
+                ticks={timeTicks}
+                interval={0}
                 tickFormatter={formatMonthYear}
                 stroke="#71717A"
                 fontSize={11}

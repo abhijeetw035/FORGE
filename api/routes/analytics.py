@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, case
 from database import get_db
 from models import Function, Commit, Repository, User, FileMetrics
 from dependencies import get_current_user
@@ -71,37 +71,85 @@ async def get_repository_timeline(
         if not repo:
             raise HTTPException(status_code=404, detail="Repository not found")
         
-        timeline_data = (
-            db.query(
-                Commit.timestamp.label('date'),
-                Commit.sha.label('sha'),
-                Commit.message.label('message'),
-                func.count(Function.id).label('function_count'),
-                func.avg(Function.complexity).label('avg_complexity'),
-                func.sum(Function.end_line - Function.start_line).label('total_loc')
-            )
-            .join(Function, Commit.id == Function.commit_id)
-            .filter(
-                Commit.repository_id == repo_id,
-                or_(Function.change_type.is_(None), Function.change_type != 'deleted')
-            )
-            .group_by(Commit.id, Commit.timestamp, Commit.sha, Commit.message)
+        # --- Snapshot algorithm: running file_map ---
+        # We need repo-wide totals after EACH commit, not just per-commit diffs.
+        # Strategy:
+        #   1. Fetch all commits in chronological order.
+        #   2. Fetch (commit_id, file_path) aggregates for active/deleted rows.
+        #   3. Walk commits in order, maintaining file_map = { file_path: {count, complexity_sum, loc_sum} }.
+        #      On each commit, update changed files; then snapshot repo-wide sums.
+
+        commits = (
+            db.query(Commit.id, Commit.timestamp, Commit.sha, Commit.message)
+            .filter(Commit.repository_id == repo_id)
             .order_by(Commit.timestamp.asc())
             .all()
         )
-        
-        result = [
-            {
-                "date": row.date.isoformat() if row.date else None,
-                "sha": row.sha[:7],
-                "message": row.message.split('\n')[0][:100],
-                "function_count": int(row.function_count) if row.function_count else 0,
-                "avg_complexity": round(float(row.avg_complexity), 2) if row.avg_complexity else 0,
-                "total_loc": int(row.total_loc) if row.total_loc else 0
-            }
-            for row in timeline_data
-        ]
-        
+
+        # Aggregate per (commit_id, file_path): count active, sum complexity & loc
+        func_rows = (
+            db.query(
+                Function.commit_id,
+                Function.file_path,
+                func.sum(
+                    case((or_(Function.change_type.is_(None), Function.change_type != 'deleted'), 1), else_=0)
+                ).label('active_count'),
+                func.sum(
+                    case((or_(Function.change_type.is_(None), Function.change_type != 'deleted'), Function.complexity), else_=0.0)
+                ).label('complexity_sum'),
+                func.sum(
+                    case((or_(Function.change_type.is_(None), Function.change_type != 'deleted'), Function.end_line - Function.start_line), else_=0)
+                ).label('loc_sum'),
+            )
+            .join(Commit, Function.commit_id == Commit.id)
+            .filter(Commit.repository_id == repo_id)
+            .group_by(Function.commit_id, Function.file_path)
+            .all()
+        )
+
+        # Index by commit_id
+        commit_file_updates: dict = defaultdict(list)
+        for r in func_rows:
+            commit_file_updates[r.commit_id].append(r)
+
+        # Walk commits, maintain running snapshot
+        file_map: dict = {}  # file_path -> {count, complexity_sum, loc_sum}
+        result = []
+        for c in commits:
+            updates = commit_file_updates.get(c.id, [])
+            if not updates and not file_map:
+                # No data yet — skip
+                continue
+            for u in updates:
+                active_count = int(u.active_count or 0)
+                if active_count > 0:
+                    file_map[u.file_path] = {
+                        'count': active_count,
+                        'complexity_sum': float(u.complexity_sum or 0.0),
+                        'loc_sum': int(u.loc_sum or 0),
+                    }
+                else:
+                    # All functions in this file were deleted this commit
+                    file_map.pop(u.file_path, None)
+
+            if not file_map and not updates:
+                continue
+
+            total_funcs = sum(f['count'] for f in file_map.values())
+            total_complexity = sum(f['complexity_sum'] for f in file_map.values())
+            total_loc = sum(f['loc_sum'] for f in file_map.values())
+            avg_complexity = round(total_complexity / total_funcs, 2) if total_funcs > 0 else 0.0
+
+            if total_funcs > 0 or updates:
+                result.append({
+                    "date": c.timestamp.isoformat() if c.timestamp else None,
+                    "sha": c.sha[:7],
+                    "message": c.message.split('\n')[0][:100] if c.message else "",
+                    "function_count": total_funcs,
+                    "avg_complexity": avg_complexity,
+                    "total_loc": total_loc,
+                })
+
         return result
         
     except Exception as e:

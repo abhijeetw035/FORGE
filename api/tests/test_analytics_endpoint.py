@@ -280,3 +280,96 @@ def test_deleted_rows_excluded_from_analytics(test_setup):
     contrib_data = resp_contrib.json()
     assert len(contrib_data) == 1
     assert contrib_data[0]["functions_added"] == 3  # NOT 4
+
+
+def test_snapshot_timeline_small_file_does_not_skew_average(test_setup):
+    """
+    Item 1 test: a commit that touches one tiny file must not move the
+    repo-wide average complexity by an unreasonable amount.
+
+    Setup:
+      Commit 1 → large.py  : 50 functions, each complexity 2.0  → avg 2.0
+      Commit 2 → small.py  :  1 function,  complexity 15.0      → avg 2.25
+      Repo-wide delta: (50*2.0 + 1*15.0)/51 ≈ 2.25 — well under 0.5 swing
+    """
+    db = test_setup["db"]
+    repo = test_setup["repo"]
+    client = TestClient(app)
+
+    # --- Commit 1: 50 functions in large.py, all complexity 2.0 ---
+    c1 = Commit(
+        repository_id=repo.id,
+        sha="cc11111111111111111111111111111111111111",
+        author="Alice",
+        message="Add large.py with 50 functions",
+        timestamp=datetime(2026, 2, 1, 10, 0, 0),
+    )
+    db.add(c1)
+    db.flush()
+
+    for i in range(50):
+        db.add(Function(
+            commit_id=c1.id,
+            name=f"fn_{i}",
+            qualified_name=f"fn_{i}",
+            file_path="large.py",
+            start_line=i * 5 + 1,
+            end_line=i * 5 + 5,
+            complexity=2,
+            lines_of_code=5,
+            canonical_id=f"canon_large_{i}",
+            change_type="new",
+        ))
+
+    # --- Commit 2: 1 function in small.py, complexity 15 ---
+    c2 = Commit(
+        repository_id=repo.id,
+        sha="cc22222222222222222222222222222222222222",
+        author="Alice",
+        message="Add small.py with one complex function",
+        timestamp=datetime(2026, 2, 2, 10, 0, 0),
+    )
+    db.add(c2)
+    db.flush()
+
+    db.add(Function(
+        commit_id=c2.id,
+        name="complex_fn",
+        qualified_name="complex_fn",
+        file_path="small.py",
+        start_line=1,
+        end_line=20,
+        complexity=15,
+        lines_of_code=20,
+        canonical_id="canon_small_0",
+        change_type="new",
+    ))
+    db.commit()
+
+    resp = client.get(f"/analytics/repositories/{repo.id}/timeline")
+    assert resp.status_code == 200, resp.text
+    time_data = resp.json()
+
+    # Must have exactly 2 data points (one per commit that has function data)
+    assert len(time_data) == 2, f"Expected 2 timeline points, got {len(time_data)}: {time_data}"
+
+    c1_stat = next(t for t in time_data if t["sha"] == "cc11111")
+    c2_stat = next(t for t in time_data if t["sha"] == "cc22222")
+
+    # Commit 1: 50 functions, avg 2.0
+    assert c1_stat["function_count"] == 50
+    assert abs(c1_stat["avg_complexity"] - 2.0) < 0.05, f"c1 avg_complexity {c1_stat['avg_complexity']} != 2.0"
+
+    # Commit 2: 51 functions (snapshot: large.py still there + small.py), avg ≈ 2.25
+    assert c2_stat["function_count"] == 51, f"Expected 51 total functions, got {c2_stat['function_count']}"
+    expected_avg = round((50 * 2.0 + 1 * 15.0) / 51, 2)  # ≈ 2.25
+    assert abs(c2_stat["avg_complexity"] - expected_avg) < 0.05, (
+        f"c2 avg_complexity {c2_stat['avg_complexity']} != expected {expected_avg}"
+    )
+
+    # The key assertion: one small file must NOT move the average by more than 0.5
+    delta = abs(c2_stat["avg_complexity"] - c1_stat["avg_complexity"])
+    assert delta < 0.5, (
+        f"Adding one small file moved avg complexity by {delta:.2f} — too much! "
+        f"(was {c1_stat['avg_complexity']}, now {c2_stat['avg_complexity']})"
+    )

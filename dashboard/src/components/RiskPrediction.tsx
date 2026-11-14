@@ -77,14 +77,12 @@ export function explainRisk(file: RiskPredictionData): string {
     return "This file exhibits anomalous patterns across recent churn and structural health signals.";
   }
 
-  const selected = phrases.slice(0, 3);
+  const selected = phrases.slice(0, 2);
   let sentence = "";
   if (selected.length === 1) {
     sentence = selected[0];
-  } else if (selected.length === 2) {
-    sentence = `${selected[0]}, and ${selected[1]}`;
   } else {
-    sentence = `${selected[0]}, ${selected[1]}, and ${selected[2]}`;
+    sentence = `${selected[0]}, and ${selected[1]}`;
   }
 
   return sentence.charAt(0).toUpperCase() + sentence.slice(1) + '.';
