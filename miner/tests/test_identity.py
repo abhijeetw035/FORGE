@@ -513,3 +513,62 @@ def transform_data(data):
         shutil.rmtree(repo_dir, ignore_errors=True)
 
 
+# ============================================================================
+# Duplicate qualified_name guard tests
+# ============================================================================
+
+def test_no_duplicate_qualified_name_per_commit_different_classes(parser):
+    """
+    Two classes with a method of the same simple name (e.g. __init__) must have
+    different qualified_names, so no (file_path, qualified_name) duplicate arises.
+    """
+    code = """\
+class First:
+    def __init__(self):
+        self.x = 1
+
+class Second:
+    def __init__(self):
+        self.x = 2
+
+def standalone():
+    pass
+"""
+    tree = parser.parse_file(code, "test.py")
+    funcs = parser.extract_functions(tree, code, "python")
+    for fn in funcs:
+        fn.setdefault('file_path', 'test.py')
+
+    keys = [(fn['file_path'], fn['qualified_name']) for fn in funcs]
+    assert len(keys) == len(set(keys)), f"Duplicate (file_path, qualified_name) found: {keys}"
+    # Verify the two __init__ have different qualified_names
+    qnames = [fn['qualified_name'] for fn in funcs]
+    assert 'First.__init__' in qnames
+    assert 'Second.__init__' in qnames
+    assert 'standalone' in qnames
+
+
+def test_no_duplicate_qualified_name_top_level_and_class(parser):
+    """
+    A top-level function and a class method with the same simple name must
+    produce distinct qualified_names.
+    """
+    code = """\
+def helper():
+    return 0
+
+class MyClass:
+    def helper(self):
+        return 1
+"""
+    tree = parser.parse_file(code, "test.py")
+    funcs = parser.extract_functions(tree, code, "python")
+    for fn in funcs:
+        fn.setdefault('file_path', 'module.py')
+
+    keys = [(fn['file_path'], fn['qualified_name']) for fn in funcs]
+    assert len(keys) == len(set(keys)), f"Duplicate (file_path, qualified_name) found: {keys}"
+    qnames = [fn['qualified_name'] for fn in funcs]
+    assert 'helper' in qnames
+    assert 'MyClass.helper' in qnames
+

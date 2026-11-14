@@ -290,3 +290,67 @@ func Standalone() {}
     qnames = {f['qualified_name']: f['name'] for f in funcs}
     assert qnames['Server.Start'] == 'Start'
     assert qnames['Standalone'] == 'Standalone'
+
+
+# ============================================================================
+# Non-ASCII / byte-offset safety tests
+# ============================================================================
+
+def test_non_ascii_before_function_python(parser):
+    """Non-ASCII chars before a function must not corrupt name/params/body_hash."""
+    code = '# café — note: special chars: → ✓\nx = "héllo"\n\ndef compute(val, factor):\n    return val * factor\n'
+    tree = parser.parse_file(code, "test.py")
+    funcs = parser.extract_functions(tree, code, "python")
+    assert len(funcs) == 1
+    assert funcs[0]['name'] == 'compute'
+    assert funcs[0]['qualified_name'] == 'compute'
+    assert funcs[0]['parameters'] == ['val', 'factor']
+
+
+def test_non_ascii_body_hash_stable_python(parser):
+    """Changing only a non-ASCII comment must not change body_hash."""
+    code1 = '# café\ndef add(a, b):\n    return a + b\n'
+    code2 = '# different — comment with arrows → ✓\ndef add(a, b):\n    return a + b\n'
+    t1 = parser.parse_file(code1, "test.py")
+    t2 = parser.parse_file(code2, "test.py")
+    f1 = parser.extract_functions(t1, code1, "python")[0]
+    f2 = parser.extract_functions(t2, code2, "python")[0]
+    assert f1['name'] == 'add'
+    assert f2['name'] == 'add'
+    assert f1['body_hash'] == f2['body_hash']
+
+
+def test_non_ascii_before_function_javascript(parser):
+    """Non-ASCII chars before a JS function must not corrupt its name."""
+    code = '// résumé → check\nconst greeting = "héllo";\nfunction myFunc(arg1) {\n    return arg1 + 1;\n}\n'
+    tree = parser.parse_file(code, "test.js")
+    funcs = parser.extract_functions(tree, code, "javascript")
+    names = [f['name'] for f in funcs]
+    assert 'myFunc' in names
+    # Verify no garbage in the name
+    fn = next(f for f in funcs if f['name'] == 'myFunc')
+    assert fn['qualified_name'] == 'myFunc'
+    assert fn['parameters'] == ['arg1']
+
+
+def test_non_ascii_before_function_go(parser):
+    """Non-ASCII chars before a Go method must not corrupt qualified name or receiver."""
+    code = 'package main\n// résumé — Server note →\ntype Server struct{}\nfunc (s *Server) Start() error {\n    return nil\n}\n'
+    tree = parser.parse_file(code, "test.go")
+    funcs = parser.extract_functions(tree, code, "go")
+    assert len(funcs) == 1
+    assert funcs[0]['name'] == 'Start'
+    assert funcs[0]['qualified_name'] == 'Server.Start'
+
+
+def test_non_ascii_body_hash_stable_go(parser):
+    """Non-ASCII comment change before a Go function must not change body_hash."""
+    code1 = 'package main\n// café\nfunc Compute(x int) int {\n    return x * 2\n}\n'
+    code2 = 'package main\n// résumé → different\nfunc Compute(x int) int {\n    return x * 2\n}\n'
+    t1 = parser.parse_file(code1, "test.go")
+    t2 = parser.parse_file(code2, "test.go")
+    f1 = parser.extract_functions(t1, code1, "go")[0]
+    f2 = parser.extract_functions(t2, code2, "go")[0]
+    assert f1['name'] == 'Compute'
+    assert f2['name'] == 'Compute'
+    assert f1['body_hash'] == f2['body_hash']

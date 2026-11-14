@@ -57,14 +57,23 @@ class ASTParser:
         if not parser:
             return None
         
-        tree = parser.parse(bytes(source_code, "utf8"))
+        source_bytes = source_code.encode("utf-8")
+        tree = parser.parse(source_bytes)
         return tree
+
+    @staticmethod
+    def _node_text(node, source_bytes: bytes) -> str:
+        """Return the UTF-8 text covered by a tree-sitter node using byte offsets."""
+        return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
     
     def extract_functions(self, tree, source_code: str, language: str = 'python') -> List[Dict[str, Any]]:
         functions = []
         
         if not tree:
             return functions
+
+        # Encode once; all node.start_byte/end_byte are byte offsets into this
+        source_bytes = source_code.encode("utf-8")
         
         # Define all function-like node types for each language
         function_types = {
@@ -95,10 +104,10 @@ class ASTParser:
         def get_class_name(n) -> Optional[str]:
             name_node = n.child_by_field_name('name')
             if name_node:
-                return source_code[name_node.start_byte:name_node.end_byte]
+                return self._node_text(name_node, source_bytes)
             for child in n.children:
                 if child.type in ['identifier', 'type_identifier']:
-                    return source_code[child.start_byte:child.end_byte]
+                    return self._node_text(child, source_bytes)
             return None
 
         def traverse(node):
@@ -110,14 +119,14 @@ class ASTParser:
                     scope_stack.append(c_name)
 
             if node.type in func_types:
-                func_info = self._extract_function_info(node, source_code, language, scope_stack)
+                func_info = self._extract_function_info(node, source_bytes, language, scope_stack)
                 if func_info:
                     functions.append(func_info)
             elif language == 'javascript' and node.type == 'variable_declarator':
                 # Check if the value is a function
                 for child in node.children:
                     if child.type in ['arrow_function', 'function_expression']:
-                        func_info = self._extract_function_info(node, source_code, language, scope_stack)
+                        func_info = self._extract_function_info(node, source_bytes, language, scope_stack)
                         if func_info:
                             functions.append(func_info)
                         break
@@ -131,7 +140,7 @@ class ASTParser:
         traverse(tree.root_node)
         return functions
     
-    def _extract_function_info(self, node, source_code: str, language: str = 'python',
+    def _extract_function_info(self, node, source_bytes: bytes, language: str = 'python',
                                scope_stack: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         name_node = None
         params_node = None
@@ -157,7 +166,7 @@ class ASTParser:
             param_lists = [c for c in node.children if c.type == 'parameter_list']
             if param_lists:
                 receiver_list = param_lists[0]
-                go_receiver_type = self._extract_go_receiver(receiver_list, source_code)
+                go_receiver_type = self._extract_go_receiver(receiver_list, source_bytes)
                 if len(param_lists) > 1:
                     params_node = param_lists[1]
             for child in node.children:
@@ -178,7 +187,7 @@ class ASTParser:
         if not name_node:
             return None
         
-        func_name = source_code[name_node.start_byte:name_node.end_byte]
+        func_name = self._node_text(name_node, source_bytes)
         start_line = node.start_point[0] + 1
         end_line = node.end_point[0] + 1
         
@@ -194,18 +203,18 @@ class ASTParser:
         if params_node:
             for param in params_node.children:
                 if param.type == 'identifier':
-                    params.append(source_code[param.start_byte:param.end_byte])
+                    params.append(self._node_text(param, source_bytes))
                 elif param.type in ['formal_parameter', 'parameter_declaration']:
                     for sub in param.children:
                         if sub.type == 'identifier':
-                            params.append(source_code[sub.start_byte:sub.end_byte])
+                            params.append(self._node_text(sub, source_bytes))
                             break
                 elif param.type == 'object_pattern':
-                    params.append(source_code[param.start_byte:param.end_byte])
+                    params.append(self._node_text(param, source_bytes))
         
         # Extract body node and token-based normalized representation
         body_node = self._get_body_node(node, language)
-        body_tokens = self._extract_body_tokens(body_node, source_code, language)
+        body_tokens = self._extract_body_tokens(body_node, source_bytes, language)
         body_hash = self._calculate_body_hash(body_tokens)
         
         return {
@@ -221,16 +230,16 @@ class ASTParser:
             'signature_hash': self._signature_hash(func_name, params, language),
         }
 
-    def _extract_go_receiver(self, receiver_list_node, source_code: str) -> Optional[str]:
+    def _extract_go_receiver(self, receiver_list_node, source_bytes: bytes) -> Optional[str]:
         for child in receiver_list_node.children:
             if child.type == 'parameter_declaration':
                 for sub in child.children:
                     if sub.type == 'type_identifier':
-                        return source_code[sub.start_byte:sub.end_byte]
+                        return self._node_text(sub, source_bytes)
                     elif sub.type == 'pointer_type':
                         for p_sub in sub.children:
                             if p_sub.type == 'type_identifier':
-                                return source_code[p_sub.start_byte:p_sub.end_byte]
+                                return self._node_text(p_sub, source_bytes)
         return None
 
     def _get_body_node(self, node, language: str):
@@ -259,7 +268,7 @@ class ASTParser:
 
         return node
 
-    def _extract_body_tokens(self, body_node, source_code: str, language: str) -> List[str]:
+    def _extract_body_tokens(self, body_node, source_bytes: bytes, language: str) -> List[str]:
         """
         Walk the function's body Tree-sitter node recursively.
         - Skip comment nodes (node type contains 'comment').
@@ -289,7 +298,7 @@ class ASTParser:
             if docstring_node is not None and n == docstring_node:
                 return
             if n.child_count == 0:
-                text = source_code[n.start_byte:n.end_byte].strip()
+                text = self._node_text(n, source_bytes).strip()
                 if text:
                     tokens.append(text)
                 return
