@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { getRepositoryRiskPrediction, getRepositoryTimeline } from '@/lib/api';
-import type { RiskPredictionData, TimelineData } from '@/lib/api';
+import { getRepositoryRiskPrediction, getRepositoryTimeline, getRepositoryFunctionEvolution } from '@/lib/api';
+import type { RiskPredictionData, TimelineData, FunctionEvolutionData } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip as ReTooltip,
@@ -11,7 +11,7 @@ import {
 } from 'recharts';
 import {
   Search, ChevronUp, ChevronDown, FileCode2,
-  TrendingUp, TrendingDown, GitCommit, Users, Activity,
+  TrendingUp, TrendingDown, GitCommit, Users, Activity, Code,
 } from 'lucide-react';
 
 interface PageProps {
@@ -21,14 +21,33 @@ interface PageProps {
 const ITEMS_PER_PAGE = 10;
 
 function riskBadge(score: number) {
-  const pct = Math.round(score * 100);
+  const val = score <= 1.0 ? score * 100 : score;
+  const formatted = val.toFixed(2);
   let bg = 'bg-green-600';
-  if (pct >= 80) bg = 'bg-red-600';
-  else if (pct >= 65) bg = 'bg-orange-500';
-  else if (pct >= 45) bg = 'bg-yellow-500';
+  if (val >= 80) bg = 'bg-red-600';
+  else if (val >= 65) bg = 'bg-orange-500';
+  else if (val >= 45) bg = 'bg-yellow-500';
   return (
     <span className={`inline-block px-2 py-0.5 rounded text-white text-xs font-bold ${bg}`}>
-      {pct}%
+      {formatted}%
+    </span>
+  );
+}
+
+function changeTypeBadge(type?: string | null) {
+  if (!type) return <span className="text-zinc-500 text-xs font-mono">—</span>;
+  const colors: Record<string, string> = {
+    new: 'bg-emerald-950 text-emerald-400 border-emerald-800',
+    edit: 'bg-blue-950 text-blue-400 border-blue-800',
+    unchanged: 'bg-zinc-800 text-zinc-400 border-zinc-700',
+    move: 'bg-purple-950 text-purple-400 border-purple-800',
+    rename: 'bg-amber-950 text-amber-400 border-amber-800',
+    deleted: 'bg-rose-950 text-rose-400 border-rose-800',
+  };
+  const cls = colors[type] || 'bg-zinc-800 text-zinc-400 border-zinc-700';
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded text-xs border font-medium uppercase tracking-wider ${cls}`}>
+      {type}
     </span>
   );
 }
@@ -62,6 +81,7 @@ export default function HeatmapPage({ params }: PageProps) {
   const [id, setId] = useState('');
   const [files, setFiles] = useState<RiskPredictionData[]>([]);
   const [timeline, setTimeline] = useState<TimelineData[]>([]);
+  const [functions, setFunctions] = useState<FunctionEvolutionData[]>([]);
   const [selected, setSelected] = useState<RiskPredictionData | null>(null);
   const [search, setSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('risk_score');
@@ -82,9 +102,11 @@ export default function HeatmapPage({ params }: PageProps) {
     Promise.all([
       getRepositoryRiskPrediction(id),
       getRepositoryTimeline(id).catch(() => [] as TimelineData[]),
-    ]).then(([risk, tl]) => {
+      getRepositoryFunctionEvolution(id).catch(() => [] as FunctionEvolutionData[]),
+    ]).then(([risk, tl, funcs]) => {
       setFiles(risk);
       setTimeline(tl);
+      setFunctions(funcs);
       if (risk.length > 0) setSelected(risk[0]);
     }).catch(e => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setIsLoading(false));
@@ -120,7 +142,15 @@ export default function HeatmapPage({ params }: PageProps) {
 
   const totalPages = Math.ceil(sorted.length / ITEMS_PER_PAGE);
   const pageRows = sorted.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
-  const detailRows = useMemo(() => sorted.slice(0, 6), [sorted]);
+
+  const selectedFunctions = useMemo(() => {
+    if (!selected) return [];
+    const sPath = selected.file_path.replace(/^\/+/, '');
+    return functions.filter(f => {
+      const fPath = f.file_path.replace(/^\/+/, '');
+      return fPath === sPath || fPath.endsWith('/' + sPath) || sPath.endsWith('/' + fPath);
+    });
+  }, [selected, functions]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -285,48 +315,125 @@ export default function HeatmapPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* File Detail View table */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 border-b border-zinc-800">
-              <h2 className="font-semibold text-zinc-100">File Detail View</h2>
+          {/* File Detail View */}
+          {selected && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+              {/* Card header */}
+              <div className="px-5 py-4 border-b border-zinc-800 flex items-center justify-between flex-wrap gap-3 bg-zinc-950/40">
+                <div className="flex items-center gap-3">
+                  <FileCode2 className="w-6 h-6 text-blue-400 shrink-0" />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="font-bold text-zinc-100 text-base">File Detail View</h2>
+                      <span className="text-zinc-500">·</span>
+                      <span className="text-blue-400 font-semibold">{shortName(selected.file_path)}</span>
+                    </div>
+                    <p className="text-xs text-zinc-500 font-mono mt-0.5">{selected.file_path}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-medium">
+                    Risk: {riskBadge(selected.risk_score)}
+                  </span>
+                  <span className="text-xs px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-medium">
+                    LOC: {Math.round(selected.complexity * 10)}
+                  </span>
+                  <span className="text-xs px-2.5 py-1 rounded bg-zinc-800 text-zinc-300 border border-zinc-700 font-medium">
+                    Complexity: {selected.complexity.toFixed(1)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Detailed Metrics Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-5">
+                <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-lg p-3">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Total Churn</p>
+                  <p className="text-lg font-bold text-zinc-100 mt-1">{selected.churn} edits</p>
+                </div>
+                <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-lg p-3">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Contributors</p>
+                  <p className="text-lg font-bold text-zinc-100 mt-1">{selected.author_count} authors</p>
+                </div>
+                <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-lg p-3">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Lines Added / Deleted</p>
+                  <p className="text-sm font-bold text-zinc-100 mt-1.5">
+                    <span className="text-green-400">+{selected.lines_added.toLocaleString()}</span> /{' '}
+                    <span className="text-red-400">−{selected.lines_deleted.toLocaleString()}</span>
+                  </p>
+                </div>
+                <div className="bg-zinc-950/60 border border-zinc-800/80 rounded-lg p-3">
+                  <p className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Ownership Entropy</p>
+                  <p className="text-lg font-bold text-purple-400 mt-1">{selected.ownership_entropy.toFixed(2)}</p>
+                </div>
+              </div>
+
+              {/* Tracked Functions Breakdown Table */}
+              <div className="px-5 pb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Code className="w-4 h-4 text-blue-400" />
+                    <h3 className="text-sm font-semibold text-zinc-200">
+                      Functions in this File
+                    </h3>
+                  </div>
+                  <span className="text-xs text-zinc-500">
+                    {selectedFunctions.length === 0 ? 'No functions tracked' : `${selectedFunctions.length} function${selectedFunctions.length === 1 ? '' : 's'} detected`}
+                  </span>
+                </div>
+
+                {selectedFunctions.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-zinc-800">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-zinc-950/80 border-b border-zinc-800 text-xs font-semibold text-zinc-400 uppercase tracking-wide">
+                          <th className="text-left py-2.5 px-3">Function / Qualified Name</th>
+                          <th className="text-right py-2.5 px-3">Complexity</th>
+                          <th className="text-right py-2.5 px-3">LOC</th>
+                          <th className="text-right py-2.5 px-3">Status</th>
+                          <th className="text-right py-2.5 px-3">Versions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-800/50">
+                        {selectedFunctions.map(fn => {
+                          const latest = fn.versions && fn.versions.length > 0
+                            ? [...fn.versions].sort((a, b) => new Date(b.timestamp ?? 0).getTime() - new Date(a.timestamp ?? 0).getTime())[0]
+                            : null;
+                          return (
+                            <tr key={fn.canonical_id} className="hover:bg-zinc-800/30 transition-colors">
+                              <td className="py-2.5 px-3 text-zinc-200 font-mono text-xs">
+                                <span className="font-semibold text-blue-400">
+                                  {fn.qualified_name || fn.name}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-zinc-300 font-mono text-xs">
+                                {latest?.complexity?.toFixed(1) ?? '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-zinc-400 font-mono text-xs">
+                                {latest?.lines_of_code ?? '—'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                {changeTypeBadge(latest?.change_type)}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-xs text-zinc-400">
+                                {fn.versions.length} {fn.versions.length === 1 ? 'version' : 'versions'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="py-6 px-4 rounded-lg border border-zinc-800/80 bg-zinc-950/40 text-center">
+                    <p className="text-zinc-400 text-sm">No individual function definitions detected in this file.</p>
+                    <p className="text-zinc-600 text-xs mt-1">
+                      This file may consist of module-level definitions, constants, imports, or configuration.
+                    </p>
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-zinc-950/60 border-b border-zinc-800">
-                    <th className="text-left py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">File Path</th>
-                    <th className="text-right py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">Size ↓ LLOC</th>
-                    <th className="text-right py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">Churn</th>
-                    <th className="text-right py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">Complexity</th>
-                    <th className="text-right py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">Authors</th>
-                    <th className="text-right py-2.5 px-3 text-xs font-semibold text-zinc-400 uppercase tracking-wide">Risk Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detailRows.map(f => (
-                    <tr
-                      key={f.file_path}
-                      onClick={() => setSelected(f)}
-                      className={`border-b border-zinc-800/50 cursor-pointer transition-colors
-                        ${selected?.file_path === f.file_path
-                          ? 'bg-blue-500/10 border-l-2 border-l-blue-500'
-                          : 'hover:bg-zinc-800/40'}`}
-                    >
-                      <td className="py-2.5 px-3 font-medium text-zinc-200 max-w-[180px] truncate">{shortName(f.file_path)}</td>
-                      <td className="py-2.5 px-3 text-right text-zinc-400">{Math.round(f.complexity * 10)}</td>
-                      <td className="py-2.5 px-3 text-right text-zinc-300">{f.churn}</td>
-                      <td className="py-2.5 px-3 text-right text-zinc-300">{f.complexity.toFixed(1)}</td>
-                      <td className="py-2.5 px-3 text-right text-zinc-300">{f.author_count}</td>
-                      <td className="py-2.5 px-3 text-right">{riskBadge(f.risk_score)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-4 py-3 border-t border-zinc-800 text-xs text-zinc-500">
-              1–{Math.min(6, detailRows.length)} of {sorted.length}
-            </div>
-          </div>
+          )}
         </div>
 
         {/* RIGHT — File detail panel */}
