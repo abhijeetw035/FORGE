@@ -1,4 +1,5 @@
 import os
+import shutil
 import math
 import re
 import logging
@@ -21,14 +22,36 @@ class GitService:
         os.makedirs(storage_path, exist_ok=True)
 
     def clone_repository(self, url: str, repo_id: int) -> str:
-        repo_dir = os.path.join(self.storage_path, f"repo_{repo_id}")
+        """
+        Return a local, up-to-date working copy of the repo.
 
-        if os.path.exists(repo_dir):
-            return repo_dir
+        First run: clone. Re-analysis: fetch the remote's HEAD and move to it,
+        so incremental runs actually see new upstream commits (previously an
+        existing clone was returned as-is and never updated). A corrupt or
+        half-cloned directory (e.g. from a failed attempt) is removed and
+        cloned again.
+        """
+        repo_dir = os.path.join(self.storage_path, f"repo_{repo_id}")
 
         clone_url = url
         if self.github_token and 'github.com' in url:
             clone_url = url.replace('https://', f'https://{self.github_token}@')
+
+        if os.path.exists(repo_dir):
+            try:
+                repo = git.Repo(repo_dir)
+                repo.head.commit  # raises on an empty/half-cloned repo
+            except (git.InvalidGitRepositoryError, git.NoSuchPathError, ValueError):
+                logger.warning(f"Clone at {repo_dir} is unusable; removing and re-cloning")
+                shutil.rmtree(repo_dir, ignore_errors=True)
+            else:
+                # Keep the remote URL current (token may have changed), then
+                # fast-forward to the remote HEAD. reset --hard also handles
+                # force-pushes; the clone is ours, nothing local to preserve.
+                repo.remotes.origin.set_url(clone_url)
+                repo.git.fetch('origin', 'HEAD')
+                repo.git.reset('--hard', 'FETCH_HEAD')
+                return repo_dir
 
         git.Repo.clone_from(clone_url, repo_dir)
         return repo_dir
