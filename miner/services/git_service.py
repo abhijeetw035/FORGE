@@ -1,5 +1,7 @@
 import os
 import shutil
+import signal
+import subprocess
 import math
 import re
 import logging
@@ -22,11 +24,34 @@ class InvalidRepositoryURL(ValueError):
     """The URL failed the allowlist; retrying cannot help."""
 
 
-# git itself is restricted too: https only, never prompt, never follow redirects
-# (an allowed host could otherwise redirect git to an internal address), and
-# never read local paths via the file protocol.
-_SAFE_GIT_ENV = {"GIT_ALLOW_PROTOCOL": "https", "GIT_TERMINAL_PROMPT": "0"}
-_SAFE_CLONE_OPTIONS = ["-c protocol.file.allow=never", "-c http.followRedirects=false"]
+# git itself is restricted too (strict mode): https only, never follow redirects
+# (an allowed host could otherwise bounce git to an internal address), never read
+# local paths via the file protocol, no credential helpers.
+_STRICT_GIT_ENV = {"GIT_ALLOW_PROTOCOL": "https"}
+_STRICT_GIT_CONFIG = ["-c", "protocol.file.allow=never",
+                      "-c", "http.followRedirects=false",
+                      "-c", "credential.helper="]
+
+# Applied in EVERY mode: git must never wait for a human. GitHub answers
+# "who are you?" for repositories that do not exist; without these, git blocks
+# on a username prompt forever and the heartbeat keeps the dead job alive.
+_NO_PROMPT_ENV = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": shutil.which("true") or "/bin/true",   # prints nothing -> instant auth failure
+    "SSH_ASKPASS": shutil.which("true") or "/bin/true",
+    "GCM_INTERACTIVE": "never",
+}
+
+# A hung clone/fetch must end. Default 10 minutes.
+GIT_NETWORK_TIMEOUT_SEC = int(os.getenv("GIT_NETWORK_TIMEOUT_SEC", "600"))
+
+
+class GitCommandFailed(Exception):
+    """git exited non-zero; the message carries its stderr (the worker redacts secrets)."""
+
+
+class GitTimeout(Exception):
+    """git did not finish within the timeout and was killed."""
 
 
 class GitService:
@@ -63,8 +88,6 @@ class GitService:
         if self.github_token and (urlparse(url).hostname or "").lower() == 'github.com':
             clone_url = url.replace('https://', f'https://{self.github_token}@', 1)
 
-        git_env = dict(_SAFE_GIT_ENV) if self.strict else {}
-
         if os.path.exists(repo_dir):
             try:
                 repo = git.Repo(repo_dir)
@@ -77,18 +100,47 @@ class GitService:
                 # fast-forward to the remote HEAD. reset --hard also handles
                 # force-pushes; the clone is ours, nothing local to preserve.
                 repo.remotes.origin.set_url(clone_url)
-                with repo.git.custom_environment(**git_env):
-                    repo.git.fetch('origin', 'HEAD')
+                self._run_git(["fetch", "origin", "HEAD"], cwd=repo_dir)
                 repo.git.reset('--hard', 'FETCH_HEAD')
                 return repo_dir
 
-        if self.strict:
-            git.Repo.clone_from(clone_url, repo_dir,
-                                env={**os.environ, **git_env},
-                                multi_options=_SAFE_CLONE_OPTIONS)
-        else:
-            git.Repo.clone_from(clone_url, repo_dir)
+        try:
+            self._run_git(["clone", "--quiet", "--", clone_url, repo_dir])
+        except Exception:
+            shutil.rmtree(repo_dir, ignore_errors=True)    # never leave a half-clone behind
+            raise
         return repo_dir
+
+    def _run_git(self, args: List[str], cwd: Optional[str] = None,
+                 timeout: Optional[int] = None) -> str:
+        """
+        Run git with no prompts, restricted protocols (strict mode) and a hard
+        timeout. A timed-out git (and any helper processes it started) is killed.
+        """
+        timeout = timeout or GIT_NETWORK_TIMEOUT_SEC
+        env = {**os.environ, **_NO_PROMPT_ENV}
+        cmd = ["git"]
+        if self.strict:
+            env.update(_STRICT_GIT_ENV)
+            cmd += _STRICT_GIT_CONFIG
+        cmd += args
+
+        proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, errors="replace",
+                                start_new_session=True)       # own process group -> killable as a unit
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.communicate()
+            raise GitTimeout(f"git {args[0]} timed out after {timeout}s and was killed")
+        if proc.returncode != 0:
+            raise GitCommandFailed(f"git {args[0]} failed (exit {proc.returncode}): {err.strip()[-600:]}")
+        return out
 
     def get_commits(self, repo_path: str):
         repo = git.Repo(repo_path)

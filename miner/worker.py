@@ -74,8 +74,13 @@ def mark_repo_failed(repo_id, reason: str) -> None:
     try:
         repo = db.query(Repository).filter(Repository.id == repo_id).first()
         if repo:
+            reason = redact_secrets(reason or "")
+            prev = repo.failed_reason or ""
+            if prev.startswith("Retrying after error:") and reason.startswith("Failed after"):
+                # keep the cause: "Failed after 3 attempts" alone says nothing about why
+                reason = f"{reason}. Last error: {prev[len('Retrying after error:'):].strip()}"
             repo.status = "failed"
-            repo.failed_reason = redact_secrets(reason or "")[:1000]
+            repo.failed_reason = reason[:1000]
             db.commit()
     except Exception:
         db.rollback()
