@@ -21,6 +21,11 @@ FEATURE_COLS = [
 ]
 
 
+# Churn thresholds standardized across backend and frontend to eliminate contradictions
+CHURN_VERY_HIGH_THRESHOLD = 20
+CHURN_HIGH_THRESHOLD = 10
+
+
 class RiskPredictor:
     """
     AI-powered risk prediction using Isolation Forest for anomaly detection.
@@ -48,6 +53,19 @@ class RiskPredictor:
             max_features=0.8,
         )
         self.scaler = StandardScaler()
+
+    @staticmethod
+    def get_churn_level(churn: float) -> str:
+        """
+        Return the standardized churn level.
+        Uses identical thresholds to _generate_reason so that churn reason
+        and churn level can never contradict each other.
+        """
+        if churn > CHURN_VERY_HIGH_THRESHOLD:
+            return 'High'
+        elif churn > CHURN_HIGH_THRESHOLD:
+            return 'Med'
+        return 'Low'
 
     def predict_risk(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -114,9 +132,9 @@ class RiskPredictor:
         reasons = []
 
         # --- churn / change rate ---
-        if row.get('churn', 0) > 20:
+        if row.get('churn', 0) > CHURN_VERY_HIGH_THRESHOLD:
             reasons.append('Very High Churn')
-        elif row.get('churn', 0) > 10:
+        elif row.get('churn', 0) > CHURN_HIGH_THRESHOLD:
             reasons.append('High Churn')
 
         # --- complexity ---

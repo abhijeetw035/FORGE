@@ -73,15 +73,8 @@ export default function RiskPage({ params }: PageProps) {
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold text-white mb-2">Risk Forecast</h1>
-        <p className="text-zinc-400">AI-powered predictions for files at risk of bugs or maintenance issues</p>
-      </div>
-
-      <div className="glass-card p-6">
-        <RiskPrediction data={riskData} />
-      </div>
+    <div className="max-w-[960px] mx-auto pb-16">
+      <RiskPrediction data={riskData} />
     </div>
   );
 }
