@@ -192,8 +192,17 @@ Tasks stay in the pending-entries list until explicitly acknowledged. After 60 s
 
 ### 5. Seamless CI/CD Integration
 
-A built-in GitHub Action workflow (`.github/workflows/forge-analysis.yml`) allows you to automatically analyze pull requests.
-It clones the changed files, checks their churn/complexity metrics via the FORGE API, and automatically leaves comments on PRs to flag **Critical Risk (🔴)** or **High Risk (🟠)** files. This turns the analysis into an actionable code review tool instead of just a static dashboard.
+A built-in GitHub Action (`.github/workflows/forge-analysis.yml`) comments on every pull request with FORGE's **risk forecast** for the files it changes: 🔴 Critical / 🟠 Warning / 🟡 Watchlist, with real churn (commits), LOC and complexity per file. The comment is updated on each push instead of duplicated.
+
+**Setup** (repository secrets):
+
+| Secret | Meaning |
+|---|---|
+| `FORGE_API_URL` | Base URL of a FORGE instance **reachable from GitHub's runners**. `localhost` does not work: deploy FORGE, or use a self-hosted runner. |
+| `FORGE_EMAIL`, `FORGE_PASSWORD` | A dedicated CI user in FORGE. It must **own** the repository in FORGE (the API is per-user). |
+| `FORGE_REPO_ID` | The repository's numeric id in FORGE. |
+
+The job **fails loudly** (red check with an error annotation) if the secrets are missing, the login is rejected or FORGE is unreachable; it never silently passes. PRs from forks are skipped with a visible notice because GitHub does not give forks access to secrets. The logic lives in `.github/scripts/forge_pr_check.py` and is covered by tests (`api/tests/test_ci_pr_bot.py`).
 
 ---
 

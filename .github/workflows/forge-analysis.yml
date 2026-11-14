@@ -1,5 +1,17 @@
 name: FORGE Code Analysis
 
+# Comments on pull requests with FORGE's risk forecast for the files they change.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   FORGE_API_URL   base URL of a FORGE instance REACHABLE FROM GITHUB'S RUNNERS
+#                   (localhost does not work: deploy FORGE or use a self-hosted runner)
+#   FORGE_EMAIL     login of a dedicated CI user that OWNS the repository in FORGE
+#   FORGE_PASSWORD
+#   FORGE_REPO_ID   numeric id of the repository in FORGE
+#
+# The job fails (red check) if FORGE is unreachable, the login is rejected, or the
+# secrets are missing. It never silently passes.
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -8,106 +20,81 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: forge-analysis-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - name: Get changed files
-        id: changed-files
-        uses: tj-actions/changed-files@v41
-        with:
-          files: |
-            **/*.py
-            **/*.js
-            **/*.jsx
-            **/*.ts
-            **/*.tsx
-            **/*.java
-            **/*.go
-      
-      - name: Analyze with FORGE API
-        id: forge-analysis
-        if: steps.changed-files.outputs.any_changed == 'true'
+
+      - name: Skip PRs from forks (GitHub does not give them secrets)
+        id: guard
         env:
-          FORGE_API_URL: ${{ secrets.FORGE_API_URL || 'https://your-forge-instance.com' }}
-          FORGE_REPO_ID: ${{ secrets.FORGE_REPO_ID }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
         run: |
-          echo "Changed files:"
-          echo "${{ steps.changed-files.outputs.all_changed_files }}"
-          
-          # Fetch heatmap data from FORGE
-          HEATMAP=$(curl -s "${FORGE_API_URL}/analytics/repositories/${FORGE_REPO_ID}/heatmap")
-          
-          # Initialize warning flags
-          HIGH_RISK_FILES=""
-          CRITICAL_FILES=""
-          
-          # Check each changed file against heatmap
-          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
-            # Extract churn score for this file
-            SCORE=$(echo "$HEATMAP" | jq -r ".[] | select(.name == \"$file\") | .score")
-            SIZE=$(echo "$HEATMAP" | jq -r ".[] | select(.name == \"$file\") | .size")
-            
-            if [ ! -z "$SCORE" ] && [ "$SCORE" != "null" ]; then
-              echo "File: $file, Churn: $SCORE, Size: $SIZE"
-              
-              # Critical: score > 100
-              if [ "$SCORE" -gt 100 ]; then
-                CRITICAL_FILES="${CRITICAL_FILES}\n- 🔴 \`${file}\` (Churn: ${SCORE}, Size: ${SIZE} LOC) - **CRITICAL RISK**"
-              # High risk: score > 50
-              elif [ "$SCORE" -gt 50 ]; then
-                HIGH_RISK_FILES="${HIGH_RISK_FILES}\n- 🟠 \`${file}\` (Churn: ${SCORE}, Size: ${SIZE} LOC) - **HIGH RISK**"
-              fi
-            fi
-          done
-          
-          # Save results for comment
-          echo "critical_files=${CRITICAL_FILES}" >> $GITHUB_OUTPUT
-          echo "high_risk_files=${HIGH_RISK_FILES}" >> $GITHUB_OUTPUT
-      
-      - name: Comment on PR
-        if: steps.changed-files.outputs.any_changed == 'true'
+          if [ "$HEAD_REPO" != "$THIS_REPO" ]; then
+            echo "::notice title=FORGE analysis skipped::PRs from forks cannot access the FORGE secrets, so no analysis was run."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Plain git instead of a third-party action; file names are never
+      # interpolated into the script (they are attacker-controlled in a PR).
+      - name: List changed source files
+        if: steps.guard.outputs.run == 'true'
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" \
+            -- '*.py' '*.js' '*.jsx' '*.ts' '*.tsx' '*.java' '*.go' > "$RUNNER_TEMP/changed.txt"
+          echo "Changed source files: $(wc -l < "$RUNNER_TEMP/changed.txt")"
+          if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Analyze with FORGE
+        if: steps.guard.outputs.run == 'true' && steps.changed.outputs.any == 'true'
+        env:
+          FORGE_API_URL: ${{ secrets.FORGE_API_URL }}
+          FORGE_EMAIL: ${{ secrets.FORGE_EMAIL }}
+          FORGE_PASSWORD: ${{ secrets.FORGE_PASSWORD }}
+          FORGE_REPO_ID: ${{ secrets.FORGE_REPO_ID }}
+          CHANGED_FILES: ${{ runner.temp }}/changed.txt
+          COMMENT_FILE: ${{ runner.temp }}/forge-comment.md
+        run: python3 .github/scripts/forge_pr_check.py
+
+      - name: Post or update the PR comment
+        if: steps.guard.outputs.run == 'true' && steps.changed.outputs.any == 'true'
         uses: actions/github-script@v7
+        env:
+          COMMENT_FILE: ${{ runner.temp }}/forge-comment.md
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const criticalFiles = `${{ steps.forge-analysis.outputs.critical_files }}`;
-            const highRiskFiles = `${{ steps.forge-analysis.outputs.high_risk_files }}`;
-            
-            let comment = '## 🔥 FORGE Code Analysis\n\n';
-            
-            if (criticalFiles) {
-              comment += '### ⚠️ Critical Risk Files\n\n';
-              comment += 'These files have extremely high churn (>100 modifications). Review carefully:\n\n';
-              comment += criticalFiles + '\n\n';
-              comment += '**Recommendation**: Consider refactoring or adding comprehensive tests.\n\n';
+            const fs = require('fs');
+            const body = fs.readFileSync(process.env.COMMENT_FILE, 'utf8');
+            const marker = '<!-- forge-analysis -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+
+            // Update our previous comment instead of adding a new one on every push.
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
-            
-            if (highRiskFiles) {
-              comment += '### 🟠 High Risk Files\n\n';
-              comment += 'These files have significant churn (>50 modifications):\n\n';
-              comment += highRiskFiles + '\n\n';
-              comment += '**Recommendation**: Extra scrutiny during code review.\n\n';
-            }
-            
-            if (!criticalFiles && !highRiskFiles) {
-              comment += '✅ No high-risk files detected in this PR.\n\n';
-              comment += 'Changed files are either new or have low churn scores.\n\n';
-            }
-            
-            comment += '---\n';
-            comment += '*Powered by [FORGE](https://github.com/abhijeetw035/FORGE) - Code Entropy Engine*\n';
-            comment += `*Churn Score = Number of historical modifications | Size = Lines of Code*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
